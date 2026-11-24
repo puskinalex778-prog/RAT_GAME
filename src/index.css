@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #e8dccb;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: 'Nunito', 'Segoe UI', Roboto, system-ui, sans-serif;
+  color: #3d2818;
+}
+
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+@layer components {
+  .safe-top {
+    padding-top: max(var(--sat), 8px);
+  }
+  .safe-bottom {
+    padding-bottom: max(var(--sab), 8px);
+  }
+  .safe-left {
+    padding-left: max(var(--sal), 8px);
+  }
+  .safe-right {
+    padding-right: max(var(--sar), 8px);
+  }
+  .glass {
+    @apply bg-cream-50/90 backdrop-blur-md shadow-soft border border-cream-200/80;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-2xl px-3.5 py-2 font-bold text-[15px] leading-tight transition active:scale-95 select-none;
+  }
+  .btn-primary {
+    @apply btn bg-berry-500 text-white shadow-soft active:bg-berry-600;
+  }
+  .btn-soft {
+    @apply btn bg-cream-100 text-cocoa-700 border border-cream-300 active:bg-cream-200;
+  }
+  .btn-ghost {
+    @apply btn text-cocoa-600 active:bg-cream-200/60;
+  }
+  .icon-btn {
+    @apply glass rounded-2xl w-12 h-12 flex flex-col items-center justify-center text-[22px] leading-none active:scale-95 transition relative;
+  }
+  .icon-btn small {
+    @apply text-[9.5px] font-bold text-cocoa-600 mt-0.5 leading-none;
+  }
+  .chip {
+    @apply rounded-full px-3 py-1 text-[13px] font-bold border transition active:scale-95;
+  }
+  .panel-title {
+    @apply text-xl font-extrabold text-cocoa-800;
+  }
+  .scroll-y {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    transform: translateY(8px) scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.animate-pop {
+  animation: pop-in 0.22s ease-out both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fade {
+  animation: fade-in 0.6s ease-out both;
+}
+
+@keyframes flash {
+  0% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.animate-flash {
+  animation: flash 0.45s ease-out both;
+}
+
+input[type='range'] {
+  accent-color: #c85676;
+}

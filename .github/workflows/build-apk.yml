@@ -1,0 +1,98 @@
+name: Сборка APK (Opus / krysky-doma)
+
+on:
+  push:
+    branches: [main, opus-version]
+  workflow_dispatch:
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Собрать APK для Android (Opus)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+
+    steps:
+      - name: Получить код
+        uses: actions/checkout@v4
+
+      - name: Установить Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Установить Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Настроить предустановленный Android SDK
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "Using Android SDK at: $SDK_DIR"
+          SDKMAN="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMAN" ]; then
+            yes | "$SDKMAN" --licenses > /dev/null 2>&1 || true
+          fi
+
+      - name: Установить зависимости
+        run: npm ci
+
+      - name: Проверка типов и сборка веб-части
+        run: npm run build
+
+      - name: Создать / синхронизировать Android-проект
+        run: |
+          if [ ! -d android ]; then npx cap add android; fi
+          npx cap sync android
+          node scripts/prepare-android.mjs
+
+      - name: Собрать debug APK
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Переименовать APK
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk "out/KryskiDoma-Opus-v1.0.${{ github.run_number }}-debug.apk"
+          ls -la out
+
+      - name: Загрузить debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KryskiDoma-Opus-APK-${{ github.run_number }}
+          path: out/*-debug.apk
+          if-no-files-found: error
+
+      - name: Подготовить ключ подписи
+        if: env.HAS_KEYSTORE == 'true'
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+
+      - name: Собрать подписанный release APK
+        if: env.HAS_KEYSTORE == 'true'
+        working-directory: android
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/release.keystore" \
+            -Pandroid.injected.signing.store.password="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+            -Pandroid.injected.signing.key.alias="${{ secrets.ANDROID_KEY_ALIAS }}" \
+            -Pandroid.injected.signing.key.password="${{ secrets.ANDROID_KEY_PASSWORD }}"
+          cp app/build/outputs/apk/release/app-release.apk "../out/KryskiDoma-Opus-v1.0.${{ github.run_number }}-release.apk"
+
+      - name: Загрузить release APK
+        if: env.HAS_KEYSTORE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: KryskiDoma-Opus-release-APK-${{ github.run_number }}
+          path: out/*-release.apk
