@@ -11,6 +11,8 @@ jobs:
   build-android-apk:
     name: Build RAT HOME ThreeJS APK
     runs-on: ubuntu-latest
+    env:
+      HAS_SIGNING_KEY: ${{ secrets.KEYSTORE_BASE64 != '' && secrets.KEYSTORE_PASSWORD != '' && secrets.KEY_ALIAS != '' && secrets.KEY_PASSWORD != '' }}
 
     steps:
       - name: Checkout repository
@@ -80,7 +82,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk "../release-artifacts/RAT HOME ThreeJS.apk"
 
       - name: Build Signed Release APK (if signing secrets are configured)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' && secrets.KEYSTORE_PASSWORD != '' && secrets.KEY_ALIAS != '' && secrets.KEY_PASSWORD != '' }}
+        if: env.HAS_SIGNING_KEY == 'true'
         working-directory: android
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
