@@ -1,0 +1,13 @@
+node_modules/
+dist/
+android/
+.DS_Store
+*.log
+*.apk
+*.zip
+*.keystore
+*.jks
+rat_assets/
+godot_wip/
+godot_rat_home/
+opus_krysky_doma/

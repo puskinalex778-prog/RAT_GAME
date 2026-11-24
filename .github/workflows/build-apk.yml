@@ -1,0 +1,105 @@
+name: Build RAT HOME Android APK (Three.js + Capacitor)
+
+on:
+  push:
+    branches:
+      - main
+      - threejs-version
+  workflow_dispatch:
+
+jobs:
+  build-android-apk:
+    name: Build RAT HOME ThreeJS APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configure preinstalled Android SDK
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          SDKMAN="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMAN" ]; then
+            yes | "$SDKMAN" --licenses > /dev/null 2>&1 || true
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck & build web bundle
+        run: |
+          npm run typecheck
+          npm run build
+
+      - name: Initialize and sync Capacitor Android project
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Configure Android manifest orientation and app icon
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if ! grep -q 'android:screenOrientation' "$MANIFEST"; then
+            sed -i 's/android:launchMode="singleTask"/android:launchMode="singleTask"\n            android:screenOrientation="fullSensor"/' "$MANIFEST"
+          fi
+
+          if [ -f "public/assets/app_icon.png" ]; then
+            for dir in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+              TARGET_DIR="android/app/src/main/res/$dir"
+              if [ -d "$TARGET_DIR" ]; then
+                cp public/assets/app_icon.png "$TARGET_DIR/ic_launcher.png"
+                cp public/assets/app_icon.png "$TARGET_DIR/ic_launcher_round.png"
+                cp public/assets/app_icon.png "$TARGET_DIR/ic_launcher_foreground.png"
+              fi
+            done
+          fi
+
+      - name: Build Debug APK (RAT HOME ThreeJS.apk)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          mkdir -p ../release-artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk "../release-artifacts/RAT HOME ThreeJS.apk"
+
+      - name: Build Signed Release APK (if signing secrets are configured)
+        if: ${{ secrets.KEYSTORE_BASE64 != '' && secrets.KEYSTORE_PASSWORD != '' && secrets.KEY_ALIAS != '' && secrets.KEY_PASSWORD != '' }}
+        working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          ./gradlew assembleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file="$(pwd)/release.keystore" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+          cp app/build/outputs/apk/release/app-release.apk "../release-artifacts/RAT HOME ThreeJS-release.apk"
+          rm -f release.keystore
+
+      - name: Upload RAT HOME ThreeJS APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RAT-HOME-ThreeJS-APK
+          path: release-artifacts/*.apk
+          retention-days: 30
