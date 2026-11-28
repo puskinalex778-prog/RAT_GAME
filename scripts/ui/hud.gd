@@ -27,20 +27,25 @@ var photo_ui: Control
 var decor_ui: Control
 var decor_tray: HBoxContainer
 var decor_info: Label
+var cutscene_ui: Control
+var cutscene_lbl: Label
 
 var modal_backdrop: ColorRect
 var modal_host: CenterContainer
 var _modal_open := false
 var _selected_decor_item := ""
 
-# Состояние конструктора питомца (для интро и Центра знакомства)
+# Состояние конструктора питомца (для зоомагазина в интро и Центра знакомства)
 var _custom_coat := "white_stripe"
 var _custom_eye := "black"
 var _custom_ears := "normal"
 var _custom_rex := false
 var _custom_sex := "m"
 var _custom_name := "Тимма"
-var _custom_origin := "rescue"
+var _preview_rat: RatModel = null
+var _preview_turntable: Node3D = null
+var _preview_yaw := 0.55
+var _preview_dragging := false
 
 func _ready() -> void:
 	layer = 10
@@ -53,6 +58,7 @@ func _ready() -> void:
 	_build_main_hud()
 	_build_photo_ui()
 	_build_decor_ui()
+	_build_cutscene_ui()
 	_build_toast()
 	_build_modal_layer()
 
@@ -67,9 +73,16 @@ func _process(delta: float) -> void:
 		_toast_t -= delta
 		if _toast_t <= 0.0 and toast_panel:
 			toast_panel.visible = false
+			_refresh_hint()
+	if _preview_turntable and is_instance_valid(_preview_turntable):
+		if not _preview_dragging:
+			_preview_yaw += delta * 0.42
+		_preview_turntable.rotation.y = _preview_yaw
 
 func is_over_ui(pos: Vector2) -> bool:
 	if _modal_open:
+		return true
+	if cutscene_ui and cutscene_ui.visible:
 		return true
 	if photo_ui and photo_ui.visible:
 		return _hit_visible_buttons(photo_ui, pos)
@@ -289,6 +302,57 @@ func _build_decor_ui() -> void:
 	tray_p.add_child(sc)
 	vb.add_child(tray_p)
 
+func _build_cutscene_ui() -> void:
+	cutscene_ui = Control.new()
+	cutscene_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cutscene_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cutscene_ui.visible = false
+	root.add_child(cutscene_ui)
+
+	var m := MarginContainer.new()
+	m.set_anchors_preset(Control.PRESET_FULL_RECT)
+	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	m.add_theme_constant_override("margin_left", 24)
+	m.add_theme_constant_override("margin_right", 24)
+	m.add_theme_constant_override("margin_bottom", 24)
+	m.add_theme_constant_override("margin_top", 20)
+	cutscene_ui.add_child(m)
+
+	var vb := UI.vb(12)
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	m.add_child(vb)
+
+	var sp := Control.new()
+	sp.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vb.add_child(sp)
+
+	var bot := UI.hb(14)
+	bot.alignment = BoxContainer.ALIGNMENT_CENTER
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UI.sb(Color(0.995, 0.968, 0.915, 0.96), 22, UI.SAGE, 2, 8, 14))
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cutscene_lbl = UI.lbl("", 22, UI.BROWN, true, true)
+	cutscene_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(cutscene_lbl)
+	bot.add_child(card)
+	bot.add_child(UI.btn("Пропустить", "", func():
+		if main:
+			main.skip_arrival_cutscene(), "secondary", 56))
+	vb.add_child(bot)
+
+func show_cutscene_ui(on: bool, text := "") -> void:
+	if hud_box:
+		hud_box.visible = not on
+	if cutscene_ui:
+		cutscene_ui.visible = on
+	if text != "" and cutscene_lbl:
+		cutscene_lbl.text = text
+
+func set_cutscene_text(text: String) -> void:
+	if cutscene_lbl:
+		cutscene_lbl.text = text
+
 func _build_toast() -> void:
 	toast_panel = PanelContainer.new()
 	toast_panel.add_theme_stylebox_override("panel", UI.sb(Color(0.24, 0.19, 0.14, 0.92), 18, UI.CREAM2, 1, 6, 12))
@@ -327,6 +391,8 @@ func toast(msg: String, _kind := "info") -> void:
 	toast_lbl.text = msg
 	toast_panel.visible = true
 	_toast_t = 3.2
+	if hint_wrap:
+		hint_wrap.visible = false
 
 func refresh_soft() -> void:
 	if Game.state.is_empty():
@@ -344,7 +410,7 @@ func refresh_soft() -> void:
 func _refresh_hint() -> void:
 	if not hint_wrap:
 		return
-	if not bool(Game.setting("hints")) or not bool(Game.state.intro_done):
+	if not bool(Game.setting("hints")) or not bool(Game.state.intro_done) or _toast_t > 0.0:
 		hint_wrap.visible = false
 		return
 	var next_q: Dictionary = {}
@@ -442,6 +508,9 @@ func _open_modal(title: String, min_size := Vector2(780, 520), closable := true)
 
 func _close_modal() -> void:
 	_modal_open = false
+	_preview_rat = null
+	_preview_turntable = null
+	_preview_dragging = false
 	if modal_backdrop:
 		modal_backdrop.visible = false
 	if modal_host:
@@ -471,95 +540,168 @@ func confirm_exit() -> void:
 	body.add_child(row)
 
 # =====================================================================
-#  1. Вступительная кат-сцена и конструктор первой крыски
+#  1. Приветствие, визуальный выбор крыски из зоомагазина и кат-сцена
 # =====================================================================
 func start_intro() -> void:
-	_show_intro_story(0)
-
-func _show_intro_story(step: int) -> void:
-	var texts := [
-		"Добро пожаловать в RAT HOME!\nВ твоей уютной комнате уже готова светлая клетка с деревянным домиком, гамаком и свежей водичкой.",
-		"На задней стенке висит тёплая памятная табличка — в знак любви к маленьким пушистым друзьям.\nОсталось выбрать, откуда ты заберёшь свою первую крыску!",
-	]
-	var body := _open_modal("Добро пожаловать домой", Vector2(760, 440), false)
-	if step == 1:
-		var plaque := TextureRect.new()
-		plaque.texture = load("res://assets/ui/dedication_plaque.png")
-		plaque.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		plaque.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		plaque.custom_minimum_size = Vector2(360, 210)
-		body.add_child(plaque)
-	body.add_child(UI.lbl(texts[step], 22))
+	var body := _open_modal("Добро пожаловать домой!", Vector2(720, 340), false)
+	body.add_child(UI.lbl("В твоей уютной комнате на комоде уже стоит просторная клетка с домиком, гамаком, миской и свежей водичкой.", 22, UI.BROWN, true, false))
+	body.add_child(UI.lbl("Давай заглянем в зоомагазин и выберем твою первую крыску!", 22, UI.SAGE_D, true, true))
 
 	var row := UI.hb(12)
-	row.add_child(UI.btn("Пропустить", "", func(): _show_intro_customizer(), "secondary", 56))
 	var sp := Control.new(); sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL; row.add_child(sp)
-	row.add_child(UI.btn("Далее →", "", func():
-		if step == 0:
-			_show_intro_story(1)
-		else:
-			_show_intro_origin(), "primary", 56))
+	row.add_child(UI.btn("Выбрать крыску в зоомагазине →", "", func(): _show_intro_customizer(), "primary", 60))
 	body.add_child(row)
 
-func _show_intro_origin() -> void:
-	var body := _open_modal("Откуда заберём первую крыску?", Vector2(780, 460), false)
-	var origins := [
-		["rescue", "Центр пристройства домашних крыс", "Подари тёплый дом спасённому и ласковому малышу."],
-		["breeder", "Ответственный заводчик", "Ручные малыши, выросшие в заботе и любви."],
-		["petshop", "Уютный зоомагазин", "Тёплая встреча с первого взгляда."],
-	]
-	for o in origins:
-		var c := UI.card()
-		var hb := UI.hb(12)
-		var vb := UI.vb(4)
-		vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		vb.add_child(UI.lbl(o[1], 22, UI.BROWN, true, true))
-		vb.add_child(UI.lbl(o[2], 18, UI.BROWN.lightened(0.2)))
-		hb.add_child(vb)
-		var oid: String = o[0]
-		hb.add_child(UI.btn("Выбрать", "", func():
-			_custom_origin = oid
-			_show_intro_customizer(), "primary", 54))
-		c.add_child(hb)
-		body.add_child(c)
-	body.add_child(UI.btn("Пропустить", "", func(): _show_intro_customizer(), "secondary", 50))
-
 func _show_intro_customizer() -> void:
-	var body := _open_modal("Познакомься со своей первой крыской", Vector2(860, 590), false)
-	body.add_child(UI.lbl("По умолчанию — белая с серой полоской по спине. Выбери любой из 20+ окрасов, ушки, шерсть и имя!", 19))
+	var body := _open_modal("Зоомагазин — выбери свою первую крыску", Vector2(980, 600), false)
 	_build_customizer_controls(body, func():
 		var rats := Game.live_rats()
+		var first_node: Rat = null
 		if not rats.is_empty():
 			var r: Dictionary = rats[0]
 			r.name = _custom_name.strip_edges() if _custom_name.strip_edges() != "" else "Тимма"
 			r.sex = _custom_sex
 			r.app = Data.appearance_from_coat(_custom_coat, _custom_eye, _custom_ears, _custom_rex)
 			main.refresh_rat_model(int(r.id))
+			if main.rats.has(int(r.id)):
+				first_node = main.rats[int(r.id)]
 		Game.state.intro_done = true
 		Game.set_flag("named")
 		Game.save_game()
 		_close_modal()
-		toast("%s переехал(а) в уютную клетку!" % _custom_name, "rat")
-		refresh_soft(), "Забрать домой!")
+		main.play_arrival_cutscene(first_node), "Забрать домой!")
 
 func _set_btn_style(b: Button, style: String) -> void:
 	match style:
 		"primary":
-			b.add_theme_stylebox_override("normal", UI.sb(UI.SAGE, 18, UI.SAGE_D, 0, 3, 12))
-			b.add_theme_stylebox_override("hover", UI.sb(UI.SAGE.lightened(0.08), 18, UI.SAGE_D, 0, 3, 12))
-			b.add_theme_stylebox_override("pressed", UI.sb(UI.SAGE_D, 18, UI.SAGE_D, 0, 1, 12))
+			b.add_theme_stylebox_override("normal", UI.sb(UI.SAGE, 18, UI.SAGE_D, 1, 3, 12))
+			b.add_theme_stylebox_override("hover", UI.sb(UI.SAGE.lightened(0.08), 18, UI.SAGE_D, 1, 3, 12))
+			b.add_theme_stylebox_override("pressed", UI.sb(UI.SAGE_D, 18, UI.SAGE_D, 1, 1, 12))
 			for c in ["font_color", "font_hover_color", "font_pressed_color"]:
 				b.add_theme_color_override(c, Color.WHITE)
 		"secondary":
-			b.add_theme_stylebox_override("normal", UI.sb(UI.CREAM2, 18, Color(), 0, 2, 12))
-			b.add_theme_stylebox_override("hover", UI.sb(UI.CREAM2.lightened(0.2), 18, Color(), 0, 2, 12))
-			b.add_theme_stylebox_override("pressed", UI.sb(UI.CREAM2.darkened(0.08), 18, Color(), 0, 0, 12))
+			b.add_theme_stylebox_override("normal", UI.sb(UI.CREAM2, 18, Color(0.80, 0.73, 0.63), 1, 2, 12))
+			b.add_theme_stylebox_override("hover", UI.sb(UI.CREAM2.lightened(0.12), 18, Color(0.75, 0.67, 0.56), 1, 2, 12))
+			b.add_theme_stylebox_override("pressed", UI.sb(UI.CREAM2.darkened(0.08), 18, Color(0.70, 0.62, 0.52), 1, 0, 12))
 			for c in ["font_color", "font_hover_color", "font_pressed_color"]:
 				b.add_theme_color_override(c, UI.BROWN)
 
+func _build_live_3d_preview() -> Control:
+	# Левая колонка: живая 3D-витрина с вращающейся крыской (можно крутить пальцем/мышкой!)
+	var wrap := UI.vb(8)
+	wrap.custom_minimum_size = Vector2(390, 420)
+
+	var frame := PanelContainer.new()
+	frame.add_theme_stylebox_override("panel", UI.sb(Color(0.24, 0.20, 0.17), 20, UI.SAGE, 2, 4, 4))
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	frame.custom_minimum_size = Vector2(390, 345)
+
+	var svc := SubViewportContainer.new()
+	svc.stretch = true
+	svc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	svc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	svc.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
+			_preview_dragging = ev.pressed
+		elif ev is InputEventMouseMotion and _preview_dragging:
+			_preview_yaw += ev.relative.x * 0.014
+		elif ev is InputEventScreenTouch:
+			_preview_dragging = ev.pressed
+		elif ev is InputEventScreenDrag:
+			_preview_yaw += ev.relative.x * 0.014)
+	frame.add_child(svc)
+
+	var vp := SubViewport.new()
+	vp.own_world_3d = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	vp.msaa_3d = Viewport.MSAA_DISABLED
+	vp.size = Vector2i(480, 420)
+	svc.add_child(vp)
+
+	var we := WorldEnvironment.new()
+	var e := Environment.new()
+	e.background_mode = Environment.BG_COLOR
+	e.background_color = Color(0.27, 0.23, 0.19)
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.98, 0.92, 0.85)
+	e.ambient_light_energy = 0.56
+	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	e.tonemap_exposure = 0.95
+	we.environment = e
+	vp.add_child(we)
+
+	var key_l := DirectionalLight3D.new()
+	key_l.rotation = Vector3(-0.62, 0.55, 0)
+	key_l.light_energy = 0.72
+	key_l.light_color = Color(1.0, 0.96, 0.90)
+	vp.add_child(key_l)
+
+	var fill_l := DirectionalLight3D.new()
+	fill_l.rotation = Vector3(-0.35, -2.2, 0)
+	fill_l.light_energy = 0.30
+	fill_l.light_color = Color(0.86, 0.92, 1.0)
+	vp.add_child(fill_l)
+
+	# Студийная подставка
+	var ped := MeshInstance3D.new()
+	var pc := CylinderMesh.new()
+	pc.top_radius = 1.65; pc.bottom_radius = 1.75; pc.height = 0.22; pc.radial_segments = 32
+	ped.mesh = pc
+	ped.position = Vector3(0, -0.11, 0)
+	ped.material_override = Items3D.mat(Color(0.64, 0.52, 0.39), 0.78, "wood")
+	vp.add_child(ped)
+
+	_preview_turntable = Node3D.new()
+	_preview_yaw = 2.45
+	_preview_turntable.rotation.y = _preview_yaw
+	vp.add_child(_preview_turntable)
+
+	_preview_rat = RatModel.new()
+	_preview_rat.build(Data.appearance_from_coat(_custom_coat, _custom_eye, _custom_ears, _custom_rex))
+	_preview_rat.scale = Vector3.ONE * 1.0
+	_preview_turntable.add_child(_preview_rat)
+
+	var cam := Camera3D.new()
+	cam.fov = 34.0
+	vp.add_child(cam)
+	cam.look_at_from_position(Vector3(0.0, 1.35, 4.15), Vector3(0.0, 0.48, 0.0), Vector3.UP)
+	cam.current = true
+
+	wrap.add_child(frame)
+
+	# Кнопки просмотра поз прямо на витрине
+	var poses := UI.hb(6)
+	poses.alignment = BoxContainer.ALIGNMENT_CENTER
+	for p_item in [["Обнюх.", "Idle_Sniff"], ["Стойка", "Rear_Beg"], ["Ест", "Eat_Nibble"], ["Спит", "Sleep_Curl"]]:
+		var clip_id: String = p_item[1]
+		var pb := UI.btn(p_item[0], "", func():
+			if _preview_rat and is_instance_valid(_preview_rat):
+				_preview_rat.play_clip(clip_id, 1.0), "secondary", 40)
+		pb.add_theme_font_size_override("font_size", 16)
+		poses.add_child(pb)
+	wrap.add_child(poses)
+
+	var hint := UI.lbl("Покрути крыску пальцем или мышкой на 360°", 15, UI.BROWN.lightened(0.22), true, false)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	wrap.add_child(hint)
+	return wrap
+
 func _build_customizer_controls(body: VBoxContainer, on_confirm: Callable, confirm_text: String) -> void:
-	# Имя + Пол
-	var top := UI.hb(10)
+	var split := UI.hb(18)
+	split.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(split)
+
+	# Слева: живая 3D-крыска
+	split.add_child(_build_live_3d_preview())
+
+	# Справа: имя, пол, визуальный выпадающий список окрасов, ушки/шерсть/глаза
+	var right := UI.vb(12)
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	split.add_child(right)
+
+	right.add_child(UI.lbl("Имя и пол:", 19, UI.BROWN, false, true))
+	var top := UI.hb(8)
 	var name_ed := LineEdit.new()
 	name_ed.text = _custom_name
 	name_ed.placeholder_text = "Имя крыски..."
@@ -567,83 +709,105 @@ func _build_customizer_controls(body: VBoxContainer, on_confirm: Callable, confi
 	name_ed.text_changed.connect(func(v): _custom_name = v)
 	top.add_child(name_ed)
 
-	var btn_m: Button
-	var btn_f: Button
-	var ear_btn: Button
-	var rex_btn: Button
-	var eye_btn: Button
-	var coat_btns := {}
+	var refs := {}
+	var desc_lbl := UI.lbl("", 17, UI.SAGE_D, true, true)
 
 	var sync_ui := func():
-		_set_btn_style(btn_m, "primary" if _custom_sex == "m" else "secondary")
-		_set_btn_style(btn_f, "primary" if _custom_sex == "f" else "secondary")
-		ear_btn.text = "Ушки: " + ("Дамбо" if _custom_ears == "dumbo" else "Стандарт")
-		rex_btn.text = "Шерсть: " + ("Рекс (волнистая)" if _custom_rex else "Гладкая")
-		eye_btn.text = "Глаза: " + Data.EYES[_custom_eye].name
-		for cid in coat_btns:
-			_set_btn_style(coat_btns[cid], "primary" if _custom_coat == cid else "secondary")
+		_set_btn_style(refs["m"], "primary" if _custom_sex == "m" else "secondary")
+		_set_btn_style(refs["f"], "primary" if _custom_sex == "f" else "secondary")
+		refs["ear"].text = "Ушки: " + ("Дамбо" if _custom_ears == "dumbo" else "Стандарт")
+		refs["rex"].text = "Шерсть: " + ("Рекс" if _custom_rex else "Гладкая")
+		refs["eye"].text = "Глаза: " + Data.EYES[_custom_eye].name
+		var app_d := Data.appearance_from_coat(_custom_coat, _custom_eye, _custom_ears, _custom_rex)
+		desc_lbl.text = Data.describe_appearance(app_d)
 
-	btn_m = UI.btn("♂ Самец", "", func():
+	var btn_m := UI.btn("♂ Самец", "", func():
 		_custom_sex = "m"
-		sync_ui.call(), "primary" if _custom_sex == "m" else "secondary", 52)
-	btn_f = UI.btn("♀ Самка", "", func():
+		sync_ui.call(), "primary" if _custom_sex == "m" else "secondary", 50)
+	var btn_f := UI.btn("♀ Самка", "", func():
 		_custom_sex = "f"
-		sync_ui.call(), "primary" if _custom_sex == "f" else "secondary", 52)
+		sync_ui.call(), "primary" if _custom_sex == "f" else "secondary", 50)
+	refs["m"] = btn_m
+	refs["f"] = btn_f
 	top.add_child(btn_m)
 	top.add_child(btn_f)
-	body.add_child(top)
+	right.add_child(top)
+
+	# Визуальный выпадающий список всех 21 окрасов с миниатюрами!
+	right.add_child(UI.lbl("Окрас (выпадающий список — смотри на крыску слева):", 19, UI.BROWN, false, true))
+	var coat_opt := OptionButton.new()
+	coat_opt.custom_minimum_size = Vector2(0, 58)
+	coat_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	coat_opt.clip_text = true
+	var sel_idx := 0
+	for i in Data.COATS.size():
+		var c: Dictionary = Data.COATS[i]
+		var ico: Texture2D = UI.tex("rats/" + str(c.img)) if str(c.img) != "" else UI.swatch_tex(Data.appearance_from_coat(c.id))
+		if ico:
+			coat_opt.add_icon_item(ico, "%d. %s" % [i + 1, str(c.name)], i)
+		else:
+			coat_opt.add_item("%d. %s" % [i + 1, str(c.name)], i)
+		if c.id == _custom_coat:
+			sel_idx = i
+	coat_opt.selected = sel_idx
+	coat_opt.item_selected.connect(func(idx: int):
+		var c: Dictionary = Data.COATS[idx]
+		_custom_coat = c.id
+		var allowed: Array = c.eyes
+		if not _custom_eye in allowed:
+			_custom_eye = allowed[0]
+		_apply_live_preview()
+		sync_ui.call()
+		Sfx.play("click"))
+	right.add_child(coat_opt)
 
 	# Ушки + Шерсть + Глаза
-	var opts := UI.hb(10)
-	ear_btn = UI.btn("Ушки: " + ("Дамбо" if _custom_ears == "dumbo" else "Стандарт"), "", func():
+	right.add_child(UI.lbl("Особенности внешности:", 19, UI.BROWN, false, true))
+	var opts := UI.hb(8)
+	var ear_btn := UI.btn("Ушки: " + ("Дамбо" if _custom_ears == "dumbo" else "Стандарт"), "", func():
 		_custom_ears = "dumbo" if _custom_ears == "normal" else "normal"
 		_apply_live_preview()
-		sync_ui.call(), "secondary", 50)
-	rex_btn = UI.btn("Шерсть: " + ("Рекс (волнистая)" if _custom_rex else "Гладкая"), "", func():
+		sync_ui.call(), "secondary", 52)
+	ear_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var rex_btn := UI.btn("Шерсть: " + ("Рекс" if _custom_rex else "Гладкая"), "", func():
 		_custom_rex = not _custom_rex
 		_apply_live_preview()
-		sync_ui.call(), "secondary", 50)
-	eye_btn = UI.btn("Глаза: " + Data.EYES[_custom_eye].name, "", func():
+		sync_ui.call(), "secondary", 52)
+	rex_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var eye_btn := UI.btn("Глаза: " + Data.EYES[_custom_eye].name, "", func():
 		var allowed: Array = Data.coat(_custom_coat).eyes
 		var idx := allowed.find(_custom_eye)
 		_custom_eye = allowed[(idx + 1) % allowed.size()]
 		_apply_live_preview()
-		sync_ui.call(), "secondary", 50)
+		sync_ui.call(), "secondary", 52)
+	eye_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	refs["ear"] = ear_btn
+	refs["rex"] = rex_btn
+	refs["eye"] = eye_btn
 	opts.add_child(ear_btn)
 	opts.add_child(rex_btn)
 	opts.add_child(eye_btn)
-	body.add_child(opts)
+	right.add_child(opts)
 
-	# Сетка всех 21 пресетов окрасов (№1 в двух вариантах: с белой головой и с шапочкой!)
-	body.add_child(UI.lbl("Выбери окрас (все 20 вариантов + подвариант с шапочкой):", 20, UI.BROWN, false, true))
-	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
-	for c in Data.COATS:
-		var cid: String = c.id
-		var cname: String = c.name
-		var ico := "rats/" + str(c.img) if str(c.img) != "" else ""
-		var b := UI.btn(cname, ico, func():
-			_custom_coat = cid
-			var allowed: Array = Data.coat(cid).eyes
-			if not _custom_eye in allowed:
-				_custom_eye = allowed[0]
-			_apply_live_preview()
-			sync_ui.call()
-			toast("Выбран окрас: " + cname), "primary" if _custom_coat == cid else "secondary", 62)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		coat_btns[cid] = b
-		grid.add_child(b)
-	body.add_child(grid)
+	var summary_card := UI.card(Color(0.95, 0.91, 0.83, 0.85), 12)
+	summary_card.add_child(desc_lbl)
+	right.add_child(summary_card)
 
-	body.add_child(UI.btn(confirm_text, "", on_confirm, "accent", 64))
+	var sp2 := Control.new()
+	sp2.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.add_child(sp2)
+
+	right.add_child(UI.btn(confirm_text, "", on_confirm, "accent", 64))
+	sync_ui.call()
 
 func _apply_live_preview() -> void:
+	var app := Data.appearance_from_coat(_custom_coat, _custom_eye, _custom_ears, _custom_rex)
+	if _preview_rat and is_instance_valid(_preview_rat):
+		_preview_rat.build(app)
 	if not bool(Game.state.intro_done):
 		var rats := Game.live_rats()
 		if not rats.is_empty():
-			rats[0].app = Data.appearance_from_coat(_custom_coat, _custom_eye, _custom_ears, _custom_rex)
+			rats[0].app = app
 			main.refresh_rat_model(int(rats[0].id))
 
 func _reopen_or_toast(msg: String) -> void:
@@ -776,7 +940,8 @@ func open_pets_list() -> void:
 #  4. Магазин (все 9 разделов + Центр знакомства)
 # =====================================================================
 func open_shop(tab := "food") -> void:
-	var body := _open_modal("Магазин • %d монет" % int(Game.state.coins), Vector2(880, 590))
+	var sz := Vector2(990, 615) if tab == "adopt" else Vector2(900, 590)
+	var body := _open_modal("Магазин • %d монет" % int(Game.state.coins), sz)
 	var tabs_sc := ScrollContainer.new()
 	tabs_sc.custom_minimum_size = Vector2(0, 62)
 	tabs_sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED

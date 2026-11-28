@@ -2,18 +2,18 @@ class_name UI
 extends RefCounted
 ## Помощники интерфейса: тема, кнопки, подписи, шкалы, иконки.
 
-const CREAM := Color(0.995, 0.965, 0.905)
-const CREAM2 := Color(0.96, 0.91, 0.83)
-const SAGE := Color(0.45, 0.60, 0.49)
-const SAGE_D := Color(0.36, 0.50, 0.40)
-const BROWN := Color(0.33, 0.24, 0.17)
-const ACCENT := Color(0.85, 0.50, 0.34)
-const GOLD := Color(0.93, 0.74, 0.30)
-const RED := Color(0.85, 0.42, 0.36)
+const CREAM := Color(0.995, 0.968, 0.915)
+const CREAM2 := Color(0.93, 0.87, 0.78)
+const SAGE := Color(0.32, 0.52, 0.39)
+const SAGE_D := Color(0.23, 0.40, 0.30)
+const BROWN := Color(0.16, 0.11, 0.08)
+const ACCENT := Color(0.80, 0.42, 0.25)
+const GOLD := Color(0.88, 0.66, 0.22)
+const RED := Color(0.80, 0.35, 0.30)
 
 static var _tex := {}
-static var font: FontVariation
-static var font_bold: FontVariation
+static var font: Font
+static var font_bold: Font
 
 static func tex(path: String) -> Texture2D:
 	if path == "":
@@ -41,38 +41,60 @@ static func sb(bg: Color, radius := 20, border := Color(0, 0, 0, 0), bw := 0, sh
 	return s
 
 static func make_theme() -> Theme:
-	var base := load("res://assets/fonts/Montserrat.ttf") as FontFile
-	font = FontVariation.new()
-	font.base_font = base
-	font.variation_opentype = {"wght": 560}
-	font_bold = FontVariation.new()
-	font_bold.base_font = base
-	font_bold.variation_opentype = {"wght": 760}
+	# Используем статические начертания Montserrat Medium и Bold — чёткий шрифт без тонкого Thin-фоллбэка на Android!
+	font = load("res://assets/fonts/Montserrat-Medium.ttf") as Font
+	font_bold = load("res://assets/fonts/Montserrat-Bold.ttf") as Font
+	if font == null:
+		font = load("res://assets/fonts/Montserrat.ttf") as Font
+	if font_bold == null:
+		font_bold = font
 	var th := Theme.new()
 	th.default_font = font
-	th.default_font_size = 24
+	th.default_font_size = 22
 	# кнопки
-	th.set_stylebox("normal", "Button", sb(SAGE, 18, SAGE_D, 0, 3, 12))
-	th.set_stylebox("hover", "Button", sb(SAGE.lightened(0.08), 18, SAGE_D, 0, 3, 12))
-	th.set_stylebox("pressed", "Button", sb(SAGE_D, 18, SAGE_D, 0, 1, 12))
-	th.set_stylebox("disabled", "Button", sb(Color(0.75, 0.73, 0.68), 18, SAGE_D, 0, 0, 12))
+	th.set_stylebox("normal", "Button", sb(SAGE, 18, SAGE_D, 1, 3, 12))
+	th.set_stylebox("hover", "Button", sb(SAGE.lightened(0.08), 18, SAGE_D, 1, 3, 12))
+	th.set_stylebox("pressed", "Button", sb(SAGE_D, 18, SAGE_D, 1, 1, 12))
+	th.set_stylebox("disabled", "Button", sb(Color(0.75, 0.72, 0.67), 18, SAGE_D, 0, 0, 12))
 	th.set_stylebox("focus", "Button", StyleBoxEmpty.new())
 	th.set_color("font_color", "Button", Color.WHITE)
 	th.set_color("font_hover_color", "Button", Color.WHITE)
-	th.set_color("font_pressed_color", "Button", Color(0.95, 0.95, 0.9))
-	th.set_color("font_disabled_color", "Button", Color(0.95, 0.94, 0.9))
+	th.set_color("font_pressed_color", "Button", Color(0.96, 0.96, 0.92))
+	th.set_color("font_disabled_color", "Button", Color(0.95, 0.94, 0.90))
 	th.set_font("font", "Button", font_bold)
 	th.set_constant("h_separation", "Button", 10)
 	th.set_constant("icon_max_width", "Button", 56)
+	# выпадающий список (OptionButton + PopupMenu)
+	th.set_stylebox("normal", "OptionButton", sb(Color.WHITE, 16, SAGE, 2, 2, 12))
+	th.set_stylebox("hover", "OptionButton", sb(CREAM, 16, SAGE, 2, 2, 12))
+	th.set_stylebox("pressed", "OptionButton", sb(CREAM2, 16, SAGE_D, 2, 1, 12))
+	th.set_stylebox("focus", "OptionButton", sb(Color.WHITE, 16, SAGE_D, 2, 2, 12))
+	th.set_color("font_color", "OptionButton", BROWN)
+	th.set_color("font_hover_color", "OptionButton", BROWN)
+	th.set_color("font_pressed_color", "OptionButton", BROWN)
+	th.set_color("font_focus_color", "OptionButton", BROWN)
+	th.set_font("font", "OptionButton", font_bold)
+	th.set_constant("icon_max_width", "OptionButton", 44)
+	th.set_stylebox("panel", "PopupMenu", sb(CREAM, 16, SAGE, 2, 8, 8))
+	th.set_stylebox("hover", "PopupMenu", sb(SAGE, 10, Color(), 0, 0, 8))
+	th.set_color("font_color", "PopupMenu", BROWN)
+	th.set_color("font_hover_color", "PopupMenu", Color.WHITE)
+	th.set_font("font", "PopupMenu", font_bold)
+	th.set_font_size("font_size", "PopupMenu", 20)
+	th.set_constant("v_separation", "PopupMenu", 10)
+	th.set_constant("h_separation", "PopupMenu", 10)
+	th.set_constant("icon_max_width", "PopupMenu", 44)
 	# панели
-	th.set_stylebox("panel", "PanelContainer", sb(CREAM, 26, CREAM2, 2, 10, 18))
-	th.set_stylebox("panel", "Panel", sb(CREAM, 26, CREAM2, 2, 10, 18))
+	th.set_stylebox("panel", "PanelContainer", sb(CREAM, 24, Color(0.84, 0.77, 0.67), 2, 10, 18))
+	th.set_stylebox("panel", "Panel", sb(CREAM, 24, Color(0.84, 0.77, 0.67), 2, 10, 18))
 	th.set_color("font_color", "Label", BROWN)
 	# поле ввода
-	th.set_stylebox("normal", "LineEdit", sb(Color.WHITE, 14, CREAM2, 2, 0, 12))
+	th.set_stylebox("normal", "LineEdit", sb(Color.WHITE, 14, Color(0.78, 0.71, 0.62), 2, 0, 12))
 	th.set_stylebox("focus", "LineEdit", sb(Color.WHITE, 14, SAGE, 3, 0, 12))
 	th.set_color("font_color", "LineEdit", BROWN)
+	th.set_color("font_placeholder_color", "LineEdit", Color(0.45, 0.38, 0.32))
 	th.set_color("caret_color", "LineEdit", BROWN)
+	th.set_font("font", "LineEdit", font_bold)
 	# шкалы
 	th.set_stylebox("background", "ProgressBar", sb(Color(0.88, 0.84, 0.77), 10, Color(), 0, 0, 0))
 	th.set_stylebox("fill", "ProgressBar", sb(SAGE, 10, Color(), 0, 0, 0))
@@ -106,9 +128,9 @@ static func btn(text: String, icon := "", cb: Callable = Callable(), style := "p
 		b.add_theme_constant_override("icon_max_width", int(min_h * 0.8))
 	match style:
 		"secondary":
-			b.add_theme_stylebox_override("normal", sb(CREAM2, 18, Color(), 0, 2, 12))
-			b.add_theme_stylebox_override("hover", sb(CREAM2.lightened(0.2), 18, Color(), 0, 2, 12))
-			b.add_theme_stylebox_override("pressed", sb(CREAM2.darkened(0.08), 18, Color(), 0, 0, 12))
+			b.add_theme_stylebox_override("normal", sb(CREAM2, 18, Color(0.80, 0.73, 0.63), 1, 2, 12))
+			b.add_theme_stylebox_override("hover", sb(CREAM2.lightened(0.12), 18, Color(0.75, 0.67, 0.56), 1, 2, 12))
+			b.add_theme_stylebox_override("pressed", sb(CREAM2.darkened(0.08), 18, Color(0.70, 0.62, 0.52), 1, 0, 12))
 			for c in ["font_color", "font_hover_color", "font_pressed_color"]:
 				b.add_theme_color_override(c, BROWN)
 		"accent":

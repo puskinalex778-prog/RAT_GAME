@@ -124,9 +124,14 @@ func build(appearance: Dictionary) -> void:
 func _collect_nodes(n: Node) -> void:
 	if n is Skeleton3D:
 		skeleton = n
+		skeleton.show_rest_only = false
 	elif n is AnimationPlayer:
 		anim_player = n
 	elif n is MeshInstance3D:
+		# Расширяем границу отсечения, чтобы скиннинг-меш крысы НИКОГДА не пропадал при приближении/стойке на Android GLES3!
+		n.extra_cull_margin = 8.0
+		n.ignore_occlusion_culling = true
+		n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 		meshes[n.name] = n
 	for c in n.get_children():
 		_collect_nodes(c)

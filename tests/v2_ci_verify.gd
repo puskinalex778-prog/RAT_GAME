@@ -38,6 +38,17 @@ func _run() -> void:
 	_req(main.get("hud") != null, "main.hud is null")
 	_req(main.get("portraits") != null, "main.portraits is null")
 
+	# Проверки v2.1: 3D-комната, отсутствие BG_CANVAS/MSAA, картина на стене, картонный домик
+	var w: Node = main.get("world")
+	_req(w.get("room_root") != null, "3D room_root missing")
+	var w_env: Environment = w.get("env")
+	_req(w_env != null and w_env.background_mode == Environment.BG_COLOR, "World must use BG_COLOR (not BG_CANVAS)")
+	var ppos: Vector3 = w.call("plaque_world_pos")
+	_req(ppos.z < -5.0 and ppos.x > 6.5, "Dedication painting must hang on the room wall beside the cage")
+	var cbox := Items3D.carrier_box()
+	_req(cbox != null and cbox.get_node_or_null("FlapBack") != null and cbox.get_node_or_null("FlapFront") != null, "carrier_box missing hinged flaps")
+	cbox.free()
+
 	var rat_map: Dictionary = main.get("rats")
 	_req(not rat_map.is_empty(), "No rats spawned in main scene")
 	var rat: Node = rat_map.values()[0]
@@ -97,8 +108,10 @@ func _run() -> void:
 		model.call("build", app)
 		await process_frame
 
-	# Проверка HUD модальных окон и базовой логики Game
+	# Проверка HUD модальных окон, конструктора с выпадающим списком и кат-сцены прибытия
 	var hud: Node = main.get("hud")
+	hud.call("_show_intro_customizer")
+	await process_frame
 	hud.call("open_shop", "food")
 	await process_frame
 	hud.call("open_care")
@@ -108,6 +121,10 @@ func _run() -> void:
 	hud.call("open_dedication")
 	await process_frame
 	hud.call("_close_modal")
+	main.call("play_arrival_cutscene", rat)
+	await process_frame
+	main.call("skip_arrival_cutscene")
+	await process_frame
 
 	Game.call("fill_bowl")
 	Game.call("refresh_water")

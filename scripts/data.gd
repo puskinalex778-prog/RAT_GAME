@@ -22,13 +22,13 @@ const PATTERN_NAMES := {
 	9: "Сиамский (пойнты)", 10: "Гималайский",
 }
 
-const WHITE := Color(0.96, 0.95, 0.92)
+const WHITE := Color(0.92, 0.90, 0.87)
 const COLORS := {
-	"white": Color(0.96, 0.95, 0.92), "gray": Color(0.44, 0.45, 0.47), "blue": Color(0.48, 0.54, 0.63),
-	"black": Color(0.14, 0.14, 0.15), "agouti": Color(0.40, 0.32, 0.22), "beige": Color(0.86, 0.76, 0.62),
-	"cream": Color(0.94, 0.88, 0.75), "chocolate": Color(0.35, 0.22, 0.15), "siam_body": Color(0.91, 0.86, 0.76),
-	"siam_point": Color(0.33, 0.25, 0.21), "hima_point": Color(0.45, 0.39, 0.36), "silver": Color(0.55, 0.55, 0.58),
-	"dark_gray": Color(0.32, 0.33, 0.35),
+	"white": Color(0.92, 0.90, 0.87), "gray": Color(0.40, 0.42, 0.45), "blue": Color(0.45, 0.51, 0.60),
+	"black": Color(0.14, 0.14, 0.15), "agouti": Color(0.39, 0.31, 0.21), "beige": Color(0.82, 0.72, 0.58),
+	"cream": Color(0.90, 0.84, 0.71), "chocolate": Color(0.34, 0.21, 0.14), "siam_body": Color(0.87, 0.82, 0.72),
+	"siam_point": Color(0.31, 0.23, 0.19), "hima_point": Color(0.42, 0.36, 0.33), "silver": Color(0.52, 0.53, 0.56),
+	"dark_gray": Color(0.30, 0.31, 0.34),
 }
 const COLOR_NAMES := {
 	"white": "Белый", "gray": "Серый", "blue": "Голубовато-серый", "black": "Чёрный", "agouti": "Агути",
@@ -152,12 +152,12 @@ const SHOP_TABS := [
 ]
 
 const THEMES := {
-	"scandi": {"name": "Уютный скандинавский домик", "price": 0, "tint": Color(1, 1, 1), "tray": Color(0.92, 0.88, 0.80), "litter": Color(0.90, 0.84, 0.70), "ambient": Color(1.0, 0.92, 0.82)},
-	"forest": {"name": "Лесная полянка", "price": 80, "tint": Color(0.78, 0.95, 0.74), "tray": Color(0.55, 0.68, 0.48), "litter": Color(0.74, 0.70, 0.50), "ambient": Color(0.88, 1.0, 0.85)},
-	"pastel": {"name": "Пастельная детская", "price": 80, "tint": Color(1.0, 0.86, 0.92), "tray": Color(0.96, 0.80, 0.86), "litter": Color(0.97, 0.92, 0.90), "ambient": Color(1.0, 0.92, 0.96)},
-	"space": {"name": "Космическая станция", "price": 120, "tint": Color(0.25, 0.30, 0.55), "tray": Color(0.55, 0.60, 0.70), "litter": Color(0.80, 0.82, 0.86), "ambient": Color(0.75, 0.82, 1.0)},
-	"city": {"name": "Миниатюрный город", "price": 100, "tint": Color(0.85, 0.88, 0.92), "tray": Color(0.60, 0.62, 0.66), "litter": Color(0.86, 0.84, 0.80), "ambient": Color(0.95, 0.96, 1.0)},
-	"autumn": {"name": "Осенний уют", "price": 90, "tint": Color(1.0, 0.80, 0.62), "tray": Color(0.75, 0.45, 0.28), "litter": Color(0.88, 0.74, 0.55), "ambient": Color(1.0, 0.86, 0.70)},
+	"scandi": {"name": "Уютный скандинавский домик", "price": 0, "tint": Color(1, 1, 1), "tray": Color(0.50, 0.60, 0.52), "litter": Color(0.64, 0.52, 0.37), "ambient": Color(0.96, 0.89, 0.80), "wall": Color(0.69, 0.62, 0.53)},
+	"forest": {"name": "Лесная полянка", "price": 80, "tint": Color(0.78, 0.95, 0.74), "tray": Color(0.42, 0.56, 0.38), "litter": Color(0.56, 0.52, 0.36), "ambient": Color(0.86, 0.94, 0.84), "wall": Color(0.58, 0.67, 0.56)},
+	"pastel": {"name": "Пастельная детская", "price": 80, "tint": Color(1.0, 0.86, 0.92), "tray": Color(0.78, 0.60, 0.66), "litter": Color(0.70, 0.58, 0.52), "ambient": Color(0.96, 0.88, 0.92), "wall": Color(0.74, 0.65, 0.69)},
+	"space": {"name": "Космическая станция", "price": 120, "tint": Color(0.25, 0.30, 0.55), "tray": Color(0.36, 0.42, 0.54), "litter": Color(0.44, 0.47, 0.56), "ambient": Color(0.72, 0.80, 0.96), "wall": Color(0.20, 0.23, 0.36)},
+	"city": {"name": "Миниатюрный город", "price": 100, "tint": Color(0.85, 0.88, 0.92), "tray": Color(0.46, 0.50, 0.54), "litter": Color(0.60, 0.56, 0.50), "ambient": Color(0.90, 0.92, 0.96), "wall": Color(0.62, 0.65, 0.70)},
+	"autumn": {"name": "Осенний уют", "price": 90, "tint": Color(1.0, 0.80, 0.62), "tray": Color(0.65, 0.38, 0.24), "litter": Color(0.62, 0.48, 0.32), "ambient": Color(0.96, 0.82, 0.66), "wall": Color(0.70, 0.57, 0.44)},
 }
 
 const ADOPT_PRICE := 60

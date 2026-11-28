@@ -1,9 +1,10 @@
 class_name World
 extends Node3D
-## 3D-мир: комната, клетка, полки, пандусы, предметы, манеж, граф навигации и слоты размещения.
+## 3D-мир: настоящая уютная 3D-комната, комод, картина на стене, клетка, полки, пандусы, предметы, манеж и граф навигации.
 
-const PEN_C := Vector3(17, -0.95, 0)
-const FLOOR_Y := -1.0
+const PEN_C := Vector3(17.0, -5.45, 1.5)
+const FLOOR_Y := -5.6
+const CABINET_TOP_Y := -0.95
 const HALF_X := 5.95
 const HALF_Z := 2.95
 ## Габариты предметов (длина по X, глубина по Z) для проверки пересечений
@@ -20,6 +21,7 @@ var node_area := {}
 var edges := {}
 var slots := {}
 var item_nodes := {}
+var room_root: Node3D
 var cage_root: Node3D
 var items_root: Node3D
 var pen_root: Node3D
@@ -32,9 +34,6 @@ var leftovers_root: Node3D
 var env: Environment
 var sun: DirectionalLight3D
 var lamp: OmniLight3D
-var bg_layer: CanvasLayer
-var bg_rect: TextureRect
-var bg_stars: Control
 var _hand_target := Vector3.ZERO
 var _hand_visible := false
 var _spinners := {}
@@ -48,46 +47,35 @@ func _ready() -> void:
 
 # ---------------------------------------------------------------------
 func _build_env() -> void:
-	bg_layer = CanvasLayer.new()
-	bg_layer.layer = -10
-	add_child(bg_layer)
-	bg_rect = TextureRect.new()
-	bg_rect.texture = load("res://assets/ui/room.jpg")
-	bg_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	bg_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	bg_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg_rect.anchor_left = -0.08
-	bg_rect.anchor_right = 1.08
-	bg_layer.add_child(bg_rect)
-	bg_stars = preload("res://scripts/ui/starfield.gd").new()
-	bg_stars.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg_stars.visible = false
-	bg_layer.add_child(bg_stars)
 	var we := WorldEnvironment.new()
 	env = Environment.new()
-	env.background_mode = Environment.BG_CANVAS
-	env.background_canvas_max_layer = -1
+	# Настоящий 3D-фон без BG_CANVAS — исправляет баг буфера глубины на Android GLES3!
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.68, 0.61, 0.52)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(1.0, 0.92, 0.82)
-	env.ambient_light_energy = 0.38
+	env.ambient_light_color = Color(0.96, 0.90, 0.82)
+	env.ambient_light_energy = 0.42
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.0
+	env.tonemap_exposure = 0.84
 	we.environment = env
 	add_child(we)
+
 	sun = DirectionalLight3D.new()
-	sun.rotation = Vector3(-0.95, 0.5, 0)
-	sun.light_energy = 0.46
-	sun.light_color = Color(1.0, 0.93, 0.82)
+	sun.rotation = Vector3(-0.78, 0.52, 0)
+	sun.light_energy = 0.50
+	sun.light_color = Color(1.0, 0.95, 0.87)
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 40.0
-	sun.shadow_bias = 0.05
+	sun.directional_shadow_max_distance = 48.0
+	sun.shadow_bias = 0.04
 	add_child(sun)
+
 	lamp = OmniLight3D.new()
-	lamp.position = Vector3(-6, 12, 8)
-	lamp.omni_range = 30
+	lamp.position = Vector3(11.6, 5.2, 3.8)
+	lamp.omni_range = 30.0
 	lamp.light_energy = 0.28
-	lamp.light_color = Color(1.0, 0.85, 0.65)
+	lamp.light_color = Color(1.0, 0.86, 0.68)
 	add_child(lamp)
+
 	hand = Items3D.hand()
 	hand.visible = false
 	hand.scale = Vector3.ONE * 0.9
@@ -97,21 +85,23 @@ func _build_env() -> void:
 func apply_quality() -> void:
 	var q := int(Game.setting("quality"))
 	sun.shadow_enabled = q >= 1
-	get_viewport().msaa_3d = Viewport.MSAA_DISABLED if q == 0 else (Viewport.MSAA_2X if q == 1 else Viewport.MSAA_4X)
+	# ВАЖНО: отключаем MSAA_3D в gl_compatibility (иначе ломается Z-буфер на Android Adreno/Mali),
+	# используем мягкое сглаживание FXAA!
+	get_viewport().msaa_3d = Viewport.MSAA_DISABLED
+	get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if q >= 1 else Viewport.SCREEN_SPACE_AA_DISABLED
 
-func set_background_offset(yaw: float) -> void:
-	if bg_rect:
-		var off := clampf(yaw, -1.2, 1.2) * 0.06
-		bg_rect.anchor_left = -0.08 + off
-		bg_rect.anchor_right = 1.08 + off
+func set_background_offset(_yaw: float) -> void:
+	# Комната теперь полностью настоящая 3D — параллакс не нужен, камера реально вращается внутри комнаты!
+	pass
 
 # ---------------------------------------------------------------------
 func rebuild() -> void:
 	level = int(Game.state.cage.level)
 	H = 9.4 if level == 1 else 12.6
-	for r in [cage_root, items_root, pen_root, theme_root, markers_root]:
+	for r in [room_root, cage_root, items_root, pen_root, theme_root, markers_root]:
 		if r:
 			r.queue_free()
+	room_root = Node3D.new(); add_child(room_root)
 	cage_root = Node3D.new(); add_child(cage_root)
 	items_root = Node3D.new(); add_child(items_root)
 	pen_root = Node3D.new(); add_child(pen_root)
@@ -119,6 +109,7 @@ func rebuild() -> void:
 	markers_root = Node3D.new(); add_child(markers_root)
 	markers_root.visible = false
 	nodes.clear(); node_area.clear(); edges.clear(); slots.clear(); item_nodes.clear(); fixed.clear(); _spinners.clear()
+	_build_room()
 	_build_layout()
 	_build_cage()
 	if bool(Game.state.playpen):
@@ -126,6 +117,168 @@ func rebuild() -> void:
 	_build_items()
 	_apply_theme()
 	refresh_state_visuals()
+
+# ---------------------- настоящая 3D-комната и комод ----------------------
+func plaque_world_pos() -> Vector3:
+	# Картина с крысками висит на задней стене комнаты справа от клетки — чисто, ровно и не перекрыта прутьями!
+	return Vector3(10.8, 5.8, -5.66)
+
+func _build_room() -> void:
+	var th: Dictionary = Data.THEMES.get(Game.state.theme, Data.THEMES.scandi)
+	var wall_col: Color = th.get("wall", Color(0.84, 0.79, 0.71))
+	var wall_mat := Items3D.mat(wall_col, 0.92)
+	var trim_mat := Items3D.mat(Color(0.92, 0.89, 0.83), 0.72)
+	var floor_wood := Items3D.mat(Color(0.66, 0.50, 0.34), 0.78, "wood")
+	var oak_wood := Items3D.mat(Color(0.62, 0.45, 0.28), 0.68, "wood")
+	var oak_dark := Items3D.mat(Color(0.46, 0.33, 0.20), 0.72, "wood")
+	var brass := Items3D.mat(Color(0.84, 0.68, 0.32), 0.32, "metal")
+	var plant_pot := Items3D.mat(Color(0.76, 0.47, 0.34), 0.75)
+	var leaf_mat := Items3D.mat(Color(0.32, 0.54, 0.34), 0.78)
+	var leaf_dark := Items3D.mat(Color(0.24, 0.43, 0.27), 0.80)
+
+	# 1. Деревянный пол комнаты
+	var floor_box := Items3D.box(room_root, Vector3(52.0, 0.25, 38.0), floor_wood, Vector3(4.0, FLOOR_Y - 0.125, 9.0))
+	floor_box.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	# Мягкий плетёный ковёр на полу перед комодом
+	var rug := MeshInstance3D.new()
+	var rc := CylinderMesh.new()
+	rc.top_radius = 8.5; rc.bottom_radius = 8.5; rc.height = 0.04; rc.radial_segments = 40
+	rug.mesh = rc
+	rug.position = Vector3(0.0, FLOOR_Y + 0.02, 4.8)
+	var rm := ShaderMaterial.new()
+	rm.shader = load("res://shaders/rug.gdshader")
+	rm.set_shader_parameter("radius", 8.5)
+	rug.material_override = rm
+	rug.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	room_root.add_child(rug)
+
+	# 2. Стены комнаты (задняя, левая, правая) + плинтусы
+	var bw := Items3D.box(room_root, Vector3(54.0, 26.0, 0.4), wall_mat, Vector3(4.0, 7.2, -6.0))
+	bw.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var lw := Items3D.box(room_root, Vector3(0.4, 26.0, 40.0), wall_mat, Vector3(-19.5, 7.2, 10.0))
+	lw.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var rw := Items3D.box(room_root, Vector3(0.4, 26.0, 40.0), wall_mat, Vector3(28.5, 7.2, 10.0))
+	rw.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Плинтусы + декоративный деревянный молдинг-панель на стене для уюта
+	Items3D.box(room_root, Vector3(52.0, 0.85, 0.22), trim_mat, Vector3(4.0, FLOOR_Y + 0.42, -5.72))
+	Items3D.box(room_root, Vector3(52.0, 0.22, 0.14), trim_mat, Vector3(4.0, -0.6, -5.75))
+	Items3D.box(room_root, Vector3(0.22, 0.85, 38.0), trim_mat, Vector3(-19.22, FLOOR_Y + 0.42, 10.0))
+	Items3D.box(room_root, Vector3(0.22, 0.85, 38.0), trim_mat, Vector3(28.22, FLOOR_Y + 0.42, 10.0))
+
+	# 3. Устойчивый деревянный комод (тумба) под клеткой!
+	# Клетка стоит прямо на столешнице комода у стены — больше не «висит посреди пола»!
+	Items3D.box(room_root, Vector3(15.2, 0.34, 8.2), oak_wood, Vector3(0.0, CABINET_TOP_Y - 0.17, 0.1))
+	Items3D.box(room_root, Vector3(14.4, 3.65, 7.5), oak_wood, Vector3(0.0, CABINET_TOP_Y - 2.16, 0.0))
+	# 3 фасада выдвижных ящиков + латунные ручки
+	for dy in [-1.95, -3.15, -4.35]:
+		for dx in [-3.4, 3.4]:
+			Items3D.box(room_root, Vector3(6.2, 0.96, 0.14), oak_dark, Vector3(dx, dy, 3.78))
+			Items3D.sph(room_root, Vector3(0.16, 0.16, 0.16), brass, Vector3(dx, dy, 3.92))
+	# 4 прочные ножки комода до пола
+	for lx in [-6.5, 6.5]:
+		for lz in [-3.1, 3.1]:
+			Items3D.cyl(room_root, 0.26, 0.18, 0.72, oak_dark, Vector3(lx, FLOOR_Y + 0.36, lz), Vector3.ZERO, 12)
+
+	# 4. Памятная картина с крысками В РАМКЕ НА СТЕНЕ КОМНАТЫ (справа от клетки)
+	_build_dedication_painting(oak_dark, brass)
+
+	# 5. Солнечное окно со шторами на левой стене
+	var win_sky := StandardMaterial3D.new()
+	win_sky.albedo_color = Color(0.95, 0.96, 0.88)
+	win_sky.emission_enabled = true
+	win_sky.emission = Color(1.0, 0.96, 0.84)
+	win_sky.emission_energy_multiplier = 0.55
+	Items3D.box(room_root, Vector3(0.18, 8.4, 7.6), win_sky, Vector3(-19.22, 5.2, 1.2))
+	# Рама окна
+	Items3D.box(room_root, Vector3(0.32, 0.35, 8.2), trim_mat, Vector3(-19.12, 9.4, 1.2))
+	Items3D.box(room_root, Vector3(0.38, 0.38, 8.6), trim_mat, Vector3(-19.08, 1.0, 1.2))
+	Items3D.box(room_root, Vector3(0.28, 8.4, 0.24), trim_mat, Vector3(-19.12, 5.2, 1.2))
+	Items3D.box(room_root, Vector3(0.28, 0.24, 7.6), trim_mat, Vector3(-19.12, 5.4, 1.2))
+	# Уютные шторы по бокам окна
+	var curtain_mat := Items3D.mat(Color(0.90, 0.85, 0.76), 0.94, "fabric")
+	Items3D.box(room_root, Vector3(0.45, 11.4, 1.4), curtain_mat, Vector3(-18.85, 4.1, -3.1))
+	Items3D.box(room_root, Vector3(0.45, 11.4, 1.4), curtain_mat, Vector3(-18.85, 4.1, 5.5))
+
+	# 6. Открытый книжный стеллаж с книгами, корзинками и растением слева от комода
+	var sx := -11.4
+	var sz := -3.7
+	# Задняя стенка, левая/правая боковины, верх и низ (открытый фасад в +Z!)
+	Items3D.box(room_root, Vector3(4.6, 11.0, 0.18), oak_dark, Vector3(sx, FLOOR_Y + 5.5, sz - 1.15))
+	Items3D.box(room_root, Vector3(0.24, 11.0, 2.5), oak_wood, Vector3(sx - 2.18, FLOOR_Y + 5.5, sz))
+	Items3D.box(room_root, Vector3(0.24, 11.0, 2.5), oak_wood, Vector3(sx + 2.18, FLOOR_Y + 5.5, sz))
+	Items3D.box(room_root, Vector3(4.6, 0.26, 2.55), oak_wood, Vector3(sx, FLOOR_Y + 11.0, sz))
+	Items3D.box(room_root, Vector3(4.6, 0.26, 2.55), oak_wood, Vector3(sx, FLOOR_Y + 0.13, sz))
+	for sy in [FLOOR_Y + 2.8, FLOOR_Y + 5.6, FLOOR_Y + 8.3]:
+		Items3D.box(room_root, Vector3(4.15, 0.22, 2.4), oak_wood, Vector3(sx, sy, sz + 0.02))
+	# Книги и плетёные корзины на открытых полках стеллажа
+	var book_cols := [Color(0.32, 0.52, 0.39), Color(0.76, 0.42, 0.30), Color(0.84, 0.68, 0.34), Color(0.42, 0.52, 0.64), Color(0.68, 0.44, 0.52)]
+	for bi in 5:
+		Items3D.box(room_root, Vector3(0.42, 1.55 + (bi % 2) * 0.28, 1.45), Items3D.mat(book_cols[bi], 0.80), Vector3(sx - 1.45 + bi * 0.48, FLOOR_Y + 9.20, sz + 0.15))
+	# Уютные плетёные корзинки на средней полке
+	Items3D.box(room_root, Vector3(1.65, 1.35, 1.75), Items3D.mat(Color(0.76, 0.66, 0.50), 0.90), Vector3(sx - 0.95, FLOOR_Y + 6.40, sz + 0.12))
+	Items3D.box(room_root, Vector3(1.65, 1.35, 1.75), Items3D.mat(Color(0.54, 0.62, 0.50), 0.90), Vector3(sx + 0.95, FLOOR_Y + 6.40, sz + 0.12))
+	# Стопка сложенных пледов внизу
+	Items3D.box(room_root, Vector3(2.8, 0.55, 1.65), Items3D.mat(Color(0.82, 0.77, 0.68), 0.95, "fabric"), Vector3(sx, FLOOR_Y + 3.22, sz + 0.1))
+	Items3D.box(room_root, Vector3(2.6, 0.52, 1.55), Items3D.mat(Color(0.56, 0.66, 0.54), 0.95, "fabric"), Vector3(sx, FLOOR_Y + 3.76, sz + 0.1))
+	# Комнатное растение на верхней полке стеллажа
+	Items3D.cyl(room_root, 0.55, 0.42, 0.95, plant_pot, Vector3(sx + 0.6, FLOOR_Y + 11.60, sz + 0.2), Vector3.ZERO, 16)
+	for li in 5:
+		var ang := li * TAU / 5.0
+		Items3D.sph(room_root, Vector3(0.55, 0.38, 0.55), leaf_mat if li % 2 == 0 else leaf_dark, Vector3(sx + 0.6 + cos(ang) * 0.45, FLOOR_Y + 12.35 + (li % 2) * 0.2, sz + 0.2 + sin(ang) * 0.45))
+
+	# 7. Уютный столик с лампой и большим растением справа от комода
+	var tx := 11.4
+	var tz := -1.8
+	Items3D.cyl(room_root, 1.8, 1.8, 0.22, oak_wood, Vector3(tx, FLOOR_Y + 3.3, tz), Vector3.ZERO, 20)
+	for li in 3:
+		var a := li * TAU / 3.0 + 0.4
+		Items3D.cyl(room_root, 0.14, 0.10, 3.3, oak_dark, Vector3(tx + cos(a) * 1.15, FLOOR_Y + 1.65, tz + sin(a) * 1.15), Vector3.ZERO, 10)
+	# Уютная настольная лампа с тёплым текстильным абажуром
+	Items3D.cyl(room_root, 0.30, 0.42, 1.1, Items3D.mat(Color(0.46, 0.54, 0.48), 0.48), Vector3(tx - 0.2, FLOOR_Y + 3.95, tz - 0.1), Vector3.ZERO, 16)
+	var shade_mat := StandardMaterial3D.new()
+	shade_mat.albedo_color = Color(0.92, 0.84, 0.70)
+	shade_mat.emission_enabled = true
+	shade_mat.emission = Color(0.95, 0.80, 0.58)
+	shade_mat.emission_energy_multiplier = 0.28
+	shade_mat.roughness = 0.88
+	Items3D.cyl(room_root, 0.72, 1.05, 1.25, shade_mat, Vector3(tx - 0.2, FLOOR_Y + 5.0, tz - 0.1), Vector3.ZERO, 20)
+	# Напольное растение рядом со столиком
+	Items3D.cyl(room_root, 0.85, 0.62, 1.5, plant_pot, Vector3(tx + 2.6, FLOOR_Y + 0.75, tz - 1.2), Vector3.ZERO, 16)
+	for li in 6:
+		var ang2 := li * TAU / 6.0
+		Items3D.sph(room_root, Vector3(0.75, 0.52, 0.75), leaf_mat if li % 2 == 0 else leaf_dark, Vector3(tx + 2.6 + cos(ang2) * 0.65, FLOOR_Y + 2.15 + (li % 3) * 0.32, tz - 1.2 + sin(ang2) * 0.65))
+
+func _build_dedication_painting(oak_dark: Material, brass: Material) -> void:
+	# Картина с крысками в тёплой дубовой рамке — висит на стене комнаты (кликабельна!)
+	var p_root := Node3D.new()
+	p_root.name = "DedicationPainting"
+	p_root.position = plaque_world_pos()
+	room_root.add_child(p_root)
+
+	var pw := 4.4
+	var ph := 3.48
+	var frame_thick := 0.22
+	# Задник и объёмная рамка
+	Items3D.box(p_root, Vector3(pw + frame_thick * 2.0, ph + frame_thick * 2.0, 0.16), oak_dark, Vector3(0, 0, -0.09))
+	Items3D.box(p_root, Vector3(pw + 0.12, ph + 0.12, 0.04), Items3D.mat(Color(0.97, 0.94, 0.88), 0.85), Vector3(0, 0, -0.005))
+
+	var tex := load("res://assets/ui/dedication_plaque.png") as Texture2D
+	if tex:
+		var face := MeshInstance3D.new()
+		var qm := QuadMesh.new()
+		qm.size = Vector2(pw, ph)
+		face.mesh = qm
+		var fm := StandardMaterial3D.new()
+		fm.albedo_texture = tex
+		fm.roughness = 0.65
+		fm.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		face.material_override = fm
+		face.position = Vector3(0, 0, 0.02)
+		p_root.add_child(face)
+
+	# Латунное крепление сверху рамки
+	Items3D.cyl(p_root, 0.09, 0.09, 0.08, brass, Vector3(0, ph * 0.5 + 0.30, -0.05), Vector3(PI / 2.0, 0, 0), 12)
 
 # ---------------------- навигация ----------------------
 func _n(id: String, p: Vector3, area := "cage") -> void:
@@ -145,55 +298,55 @@ func _slot(id: String, pos: Vector3, type: String, acc: Vector3, links: Array, a
 	slots[id] = {"pos": pos, "type": type, "acc": nid, "area": area, "max": maxfoot, "attach": attach, "rot": rot}
 
 func _build_layout() -> void:
-	# пол клетки
+	# пол клетки (все точки с комфортным запасом от стенок и предметов!)
 	for i in 5:
-		_n("fw%d" % i, Vector3(-4.6 + i * 2.3, 0, [0.0, 0.1, 0.0, 0.1, 0.2][i]))
+		_n("fw%d" % i, Vector3(-4.4 + i * 2.15, 0, [0.0, 0.1, 0.0, 0.1, 0.15][i]))
 		if i > 0:
 			_e("fw%d" % (i - 1), "fw%d" % i)
-	_n("door", Vector3(0, 0, 1.55)); _e("door", "fw2")
-	_n("bowl", Vector3(3.15, 0, 1.55)); _e("bowl", "fw3"); _e("bowl", "fw4")
-	_n("drink", Vector3(5.0, 0, 0.6)); _e("drink", "fw4")
-	_n("litter", Vector3(4.8, 0.2, -1.4)); _e("litter", "fw4")
-	_slot("f1", Vector3(-4.3, 0, -1.6), "floor", Vector3(0.3, 0, 1.1), ["fw0", "fw1"], "cage", Vector2(3.1, 2.3))
-	_slot("f2", Vector3(-4.3, 0, 1.7), "floor", Vector3(0.3, 0, -1.2), ["fw0", "fw1"], "cage", Vector2(3.1, 2.3))
-	_slot("f3", Vector3(-1.3, 0, -1.55), "floor", Vector3(0, 0, 1.1), ["fw1", "fw2"], "cage", Vector2(2.9, 2.2))
-	_slot("f4", Vector3(-1.4, 0, 1.75), "floor", Vector3(0, 0, -1.2), ["fw1", "fw2"], "cage", Vector2(2.6, 2.2))
-	_slot("f5", Vector3(1.4, 0, 1.75), "floor", Vector3(0, 0, -1.2), ["fw2", "fw3"], "cage", Vector2(2.3, 2.0))
+	_n("door", Vector3(0.0, 0, 1.35)); _e("door", "fw2")
+	_n("bowl", Vector3(2.45, 0, 1.30)); _e("bowl", "fw3"); _e("bowl", "fw4")
+	_n("drink", Vector3(4.85, 0, 0.55)); _e("drink", "fw4")
+	_n("litter", Vector3(4.45, 0.2, -1.45)); _e("litter", "fw4")
+	_slot("f1", Vector3(-4.2, 0, -1.5), "floor", Vector3(0.3, 0, 1.1), ["fw0", "fw1"], "cage", Vector2(3.1, 2.3))
+	_slot("f2", Vector3(-4.2, 0, 1.55), "floor", Vector3(0.3, 0, -1.1), ["fw0", "fw1"], "cage", Vector2(3.1, 2.3))
+	_slot("f3", Vector3(-1.3, 0, -1.5), "floor", Vector3(0, 0, 1.1), ["fw1", "fw2"], "cage", Vector2(2.9, 2.2))
+	_slot("f4", Vector3(-1.4, 0, 1.6), "floor", Vector3(0, 0, -1.1), ["fw1", "fw2"], "cage", Vector2(2.6, 2.2))
+	_slot("f5", Vector3(1.2, 0, 1.6), "floor", Vector3(0, 0, -1.1), ["fw2", "fw3"], "cage", Vector2(2.3, 2.0))
 	# пандус 1 (задняя стенка) → полка A
-	_n("r1b", Vector3(3.45, 0, -2.15)); _e("r1b", "fw3"); _e("r1b", "fw4")
-	_n("r1t", Vector3(-2.35, 3.6, -2.15)); _e("r1b", "r1t", "ramp")
-	_n("a2", Vector3(-2.9, 3.6, -2.0)); _e("r1t", "a2")
-	_n("a0", Vector3(-4.3, 3.6, -0.3)); _n("a1", Vector3(-3.2, 3.6, 1.0)); _n("a3", Vector3(-2.9, 3.6, 1.85)); _n("aw", Vector3(-5.4, 3.6, 0.4))
+	_n("r1b", Vector3(3.35, 0, -2.05)); _e("r1b", "fw3"); _e("r1b", "fw4")
+	_n("r1t", Vector3(-2.35, 3.6, -2.05)); _e("r1b", "r1t", "ramp")
+	_n("a2", Vector3(-2.9, 3.6, -1.9)); _e("r1t", "a2")
+	_n("a0", Vector3(-4.3, 3.6, -0.3)); _n("a1", Vector3(-3.2, 3.6, 1.0)); _n("a3", Vector3(-2.9, 3.6, 1.75)); _n("aw", Vector3(-5.15, 3.6, 0.4))
 	_e("a2", "a0"); _e("a0", "a1"); _e("a1", "a3"); _e("a0", "aw"); _e("a2", "a1")
-	_slot("sa1", Vector3(-4.6, 3.6, -1.75), "shelf", Vector3(0.4, 0, 1.15), ["a0", "a2"], "cage", Vector2(2.4, 1.5))
-	_slot("sa2", Vector3(-4.6, 3.6, 1.6), "shelf", Vector3(0.6, 0, -0.9), ["a1"], "cage", Vector2(2.4, 1.5))
+	_slot("sa1", Vector3(-4.5, 3.6, -1.65), "shelf", Vector3(0.4, 0, 1.15), ["a0", "a2"], "cage", Vector2(2.4, 1.5))
+	_slot("sa2", Vector3(-4.5, 3.6, 1.55), "shelf", Vector3(0.6, 0, -0.9), ["a1"], "cage", Vector2(2.4, 1.5))
 	# пандус 2 (спереди) → полка B
-	_n("r2b", Vector3(-2.35, 3.6, 1.85)); _e("a3", "r2b")
-	_n("r2t", Vector3(2.35, 6.8, 1.85)); _e("r2b", "r2t", "ramp")
-	_n("b0", Vector3(2.9, 6.8, 1.85)); _e("r2t", "b0")
-	_n("b1", Vector3(3.8, 6.8, 0.2)); _n("b2", Vector3(2.9, 6.8, -1.4)); _n("bw", Vector3(5.4, 6.8, 0.4))
+	_n("r2b", Vector3(-2.35, 3.6, 1.75)); _e("a3", "r2b")
+	_n("r2t", Vector3(2.35, 6.8, 1.75)); _e("r2b", "r2t", "ramp")
+	_n("b0", Vector3(2.9, 6.8, 1.75)); _e("r2t", "b0")
+	_n("b1", Vector3(3.8, 6.8, 0.2)); _n("b2", Vector3(2.9, 6.8, -1.4)); _n("bw", Vector3(5.15, 6.8, 0.4))
 	_e("b0", "b1"); _e("b1", "b2"); _e("b1", "bw")
-	_slot("sb1", Vector3(4.7, 6.8, -1.75), "shelf", Vector3(-0.6, 0, 1.15), ["b1", "b2"], "cage", Vector2(2.4, 1.5))
-	_slot("sb2", Vector3(4.75, 6.8, 1.65), "shelf", Vector3(-0.8, 0, -0.8), ["b1", "b0"], "cage", Vector2(2.2, 1.4))
+	_slot("sb1", Vector3(4.55, 6.8, -1.65), "shelf", Vector3(-0.6, 0, 1.15), ["b1", "b2"], "cage", Vector2(2.4, 1.5))
+	_slot("sb2", Vector3(4.6, 6.8, 1.55), "shelf", Vector3(-0.8, 0, -0.8), ["b1", "b0"], "cage", Vector2(2.2, 1.4))
 	# подвесные места
 	var under_c := 9.9 if level >= 2 else H
-	_n("h1e", Vector3(-5.35, 6.55, 0.35)); _e("aw", "h1e", "climb")
+	_n("h1e", Vector3(-5.15, 6.55, 0.35)); _e("aw", "h1e", "climb")
 	_slot("h1", Vector3(-3.9, 6.5, 0.3), "hang", Vector3(0, 0.05, 0), ["h1e"], "cage", Vector2(9, 9), under_c)
 	_n("h2e", Vector3(1.7, 6.1, -1.0)); _e("b2", "h2e", "hop")
 	_slot("h2", Vector3(0.1, 5.9, -0.9), "hang", Vector3(0, 0.05, 0), ["h2e"], "cage", Vector2(9, 9), H)
 	# полка на правой стенке
-	_n("w1b", Vector3(5.4, 0, -0.35)); _e("w1b", "fw4"); _e("w1b", "drink")
-	_n("w1e", Vector3(5.45, 3.4, -0.35)); _e("w1b", "w1e", "climb")
-	_slot("w1", Vector3(5.15, 3.4, -1.1), "wall", Vector3(-0.1, 0, 0.2), ["w1e"], "cage", Vector2(9, 9), 0.0, PI / 2)
+	_n("w1b", Vector3(5.1, 0, -0.35)); _e("w1b", "fw4"); _e("w1b", "drink")
+	_n("w1e", Vector3(5.15, 3.4, -0.35)); _e("w1b", "w1e", "climb")
+	_slot("w1", Vector3(5.0, 3.4, -1.1), "wall", Vector3(-0.1, 0, 0.2), ["w1e"], "cage", Vector2(9, 9), 0.0, PI / 2)
 	if level >= 2:
-		_n("r3b", Vector3(2.35, 6.8, -2.15)); _e("r3b", "b2")
-		_n("r3t", Vector3(-2.35, 10.0, -2.15)); _e("r3b", "r3t", "ramp")
-		_n("c2", Vector3(-2.9, 10.0, -2.0)); _e("r3t", "c2")
+		_n("r3b", Vector3(2.35, 6.8, -2.05)); _e("r3b", "b2")
+		_n("r3t", Vector3(-2.35, 10.0, -2.05)); _e("r3b", "r3t", "ramp")
+		_n("c2", Vector3(-2.9, 10.0, -1.9)); _e("r3t", "c2")
 		_n("c0", Vector3(-4.3, 10.0, -0.3)); _n("c1", Vector3(-3.2, 10.0, 1.2))
 		_e("c2", "c0"); _e("c0", "c1")
-		_slot("sc1", Vector3(-4.6, 10.0, -1.75), "shelf", Vector3(0.4, 0, 1.15), ["c0", "c2"], "cage", Vector2(2.4, 1.5))
-		_slot("sc2", Vector3(-4.6, 10.0, 1.6), "shelf", Vector3(0.6, 0, -0.9), ["c1"], "cage", Vector2(2.4, 1.5))
-		_n("h3e", Vector3(5.35, 9.7, 0.35)); _e("bw", "h3e", "climb")
+		_slot("sc1", Vector3(-4.5, 10.0, -1.65), "shelf", Vector3(0.4, 0, 1.15), ["c0", "c2"], "cage", Vector2(2.4, 1.5))
+		_slot("sc2", Vector3(-4.5, 10.0, 1.55), "shelf", Vector3(0.6, 0, -0.9), ["c1"], "cage", Vector2(2.4, 1.5))
+		_n("h3e", Vector3(5.15, 9.7, 0.35)); _e("bw", "h3e", "climb")
 		_slot("h3", Vector3(3.9, 9.6, 0.3), "hang", Vector3(0, 0.05, 0), ["h3e"], "cage", Vector2(9, 9), H)
 	if bool(Game.state.playpen):
 		for i in [-1, 0, 1]:
@@ -228,7 +381,6 @@ func find_path(from: String, to: String) -> Array:
 			break
 		for e in edges[u]:
 			var v: String = e.to
-			# узлы слотов — тупиковые, через них не ходим
 			if v.begins_with("s_") and v != to:
 				continue
 			var nd: float = dist[u] + nodes[u].distance_to(nodes[v]) * (1.6 if e.type == "climb" else 1.0)
@@ -288,7 +440,6 @@ func occupied_slots(area := "cage", pred := Callable()) -> Array:
 		out.append(sid)
 	return out
 
-## Проверки размещения: тип слота, высота, габариты, пересечения
 func can_place(item_id: String, slot_id: String, rot := -1) -> Dictionary:
 	var it: Dictionary = Data.ITEMS[item_id]
 	var s: Dictionary = slots.get(slot_id, {})
@@ -315,127 +466,111 @@ func can_place(item_id: String, slot_id: String, rot := -1) -> Dictionary:
 # ---------------------- клетка ----------------------
 func _build_cage() -> void:
 	var th: Dictionary = Data.THEMES.get(Game.state.theme, Data.THEMES.scandi)
-	var tray := Items3D.mat(th.tray, 0.5)
-	# поддон
-	Items3D.box(cage_root, Vector3(12.6, 1.0, 6.6), tray, Vector3(0, -0.5, 0))
+	var tray := Items3D.mat(th.tray, 0.52)
+	var tray_rim := Items3D.mat(th.tray.darkened(0.08), 0.48)
+
+	# Глубокий аккуратный поддон с 4 бортиками и боковыми защёлками-клипсами
+	Items3D.box(cage_root, Vector3(12.5, 0.90, 6.5), tray, Vector3(0, -0.50, 0))
+	# Бортики по периметру поддона (передний чуть ниже для свободного обзора)
+	Items3D.box(cage_root, Vector3(12.5, 0.58, 0.22), tray_rim, Vector3(0, 0.24, -HALF_Z - 0.16))
+	Items3D.box(cage_root, Vector3(12.5, 0.34, 0.22), tray_rim, Vector3(0, 0.12, HALF_Z + 0.16))
+	Items3D.box(cage_root, Vector3(0.22, 0.58, 6.5), tray_rim, Vector3(-HALF_X - 0.16, 0.24, 0))
+	Items3D.box(cage_root, Vector3(0.22, 0.58, 6.5), tray_rim, Vector3(HALF_X + 0.16, 0.24, 0))
+	# Боковые защёлки крепления решётки к поддону (как у настоящей клетки)
+	var clip_m := Items3D.mat(Color(0.32, 0.30, 0.28), 0.45)
+	for cz in [-1.5, 1.5]:
+		Items3D.box(cage_root, Vector3(0.16, 0.52, 0.38), clip_m, Vector3(-HALF_X - 0.28, 0.32, cz))
+		Items3D.box(cage_root, Vector3(0.16, 0.52, 0.38), clip_m, Vector3(HALF_X + 0.28, 0.32, cz))
+
+	# Наполнитель (тёплая древесная стружка — отличный контраст для белых крысок!)
 	var floor_mi := MeshInstance3D.new()
 	var fb := BoxMesh.new()
-	fb.size = Vector3(HALF_X * 2, 0.1, HALF_Z * 2)
+	fb.size = Vector3(HALF_X * 2.0, 0.12, HALF_Z * 2.0)
 	floor_mi.mesh = fb
-	floor_mi.position = Vector3(0, -0.05, 0)
+	floor_mi.position = Vector3(0, -0.06, 0)
 	litter_mat = ShaderMaterial.new()
 	litter_mat.shader = load("res://shaders/litter.gdshader")
 	litter_mat.set_shader_parameter("col", th.litter)
 	floor_mi.material_override = litter_mat
 	cage_root.add_child(floor_mi)
-	# ковёр под клеткой
-	var rug := MeshInstance3D.new()
-	var rc := CylinderMesh.new()
-	rc.top_radius = 11.0; rc.bottom_radius = 11.0; rc.height = 0.04; rc.radial_segments = 48
-	rug.mesh = rc
-	rug.position = Vector3(0, FLOOR_Y + 0.02, 0)
-	var rm := ShaderMaterial.new()
-	rm.shader = load("res://shaders/rug.gdshader")
-	rm.set_shader_parameter("radius", 11.0)
-	rug.material_override = rm
-	cage_root.add_child(rug)
-	# прутья (MultiMesh — один вызов отрисовки)
+
+	# Изящные графитово-тёплые прутья (задняя, левая, правая стенки + крыша + горизонтальные перекладины).
+	# Передняя грань — открытый панорамный проём с аккуратными боковыми секциями и рамой дверцы!
 	var metal := StandardMaterial3D.new()
-	metal.albedo_color = Color(0.92, 0.92, 0.9)
-	metal.metallic = 0.6
-	metal.roughness = 0.35
-	var front_metal := metal.duplicate()
-	front_metal.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	front_metal.albedo_color = Color(0.92, 0.92, 0.9, 0.35)
+	metal.albedo_color = Color(0.36, 0.34, 0.32)
+	metal.metallic = 0.42
+	metal.roughness = 0.44
 	var bar := CylinderMesh.new()
-	bar.top_radius = 0.035; bar.bottom_radius = 0.035; bar.height = 1.0; bar.radial_segments = 6; bar.rings = 1
+	bar.top_radius = 0.022; bar.bottom_radius = 0.022; bar.height = 1.0; bar.radial_segments = 6; bar.rings = 1
 	var back_t := []
-	var front_t := []
-	var sp := 0.55
-	var nx := int(HALF_X * 2 / sp)
-	var nz := int(HALF_Z * 2 / sp)
+	var sp := 0.68
+	var nx := int(HALF_X * 2.0 / sp)
+	var nz := int(HALF_Z * 2.0 / sp)
 	for i in nx + 1:
-		var x := -HALF_X + i * HALF_X * 2 / nx
-		back_t.append(Transform3D(Basis.from_scale(Vector3(1, H, 1)), Vector3(x, H / 2, -HALF_Z - 0.02)))
-		front_t.append(Transform3D(Basis.from_scale(Vector3(1, H, 1)), Vector3(x, H / 2, HALF_Z + 0.02)))
+		var x := -HALF_X + i * HALF_X * 2.0 / nx
+		back_t.append(Transform3D(Basis.from_scale(Vector3(1, H - 0.4, 1)), Vector3(x, (H + 0.4) * 0.5, -HALF_Z - 0.04)))
 	for j in nz + 1:
-		var z := -HALF_Z + j * HALF_Z * 2 / nz
-		back_t.append(Transform3D(Basis.from_scale(Vector3(1, H, 1)), Vector3(-HALF_X - 0.02, H / 2, z)))
-		back_t.append(Transform3D(Basis.from_scale(Vector3(1, H, 1)), Vector3(HALF_X + 0.02, H / 2, z)))
-	# крыша
+		var z := -HALF_Z + j * HALF_Z * 2.0 / nz
+		back_t.append(Transform3D(Basis.from_scale(Vector3(1, H - 0.4, 1)), Vector3(-HALF_X - 0.04, (H + 0.4) * 0.5, z)))
+		back_t.append(Transform3D(Basis.from_scale(Vector3(1, H - 0.4, 1)), Vector3(HALF_X + 0.04, (H + 0.4) * 0.5, z)))
+	# Горизонтальные поперечины жёсткости на задней и боковых стенках (масштаб по локальной оси Y ДО поворота!)
+	var rail_ys := [3.6, 6.8] if level == 1 else [3.6, 6.8, 10.0]
+	var horiz_x := Basis(Vector3.FORWARD, PI / 2) * Basis.from_scale(Vector3(1, HALF_X * 2.0, 1))
+	var horiz_z := Basis(Vector3.RIGHT, PI / 2) * Basis.from_scale(Vector3(1, HALF_Z * 2.0, 1))
+	for ry in rail_ys:
+		back_t.append(Transform3D(horiz_x, Vector3(0, ry, -HALF_Z - 0.04)))
+		back_t.append(Transform3D(horiz_z, Vector3(-HALF_X - 0.04, ry, 0)))
+		back_t.append(Transform3D(horiz_z, Vector3(HALF_X + 0.04, ry, 0)))
+	# Крыша клетки
 	for i in nx + 1:
-		var x2 := -HALF_X + i * HALF_X * 2 / nx
-		back_t.append(Transform3D(Basis(Vector3.RIGHT, PI / 2).scaled(Vector3(1, 1, HALF_Z * 2)), Vector3(x2, H, 0)))
+		var x2 := -HALF_X + i * HALF_X * 2.0 / nx
+		back_t.append(Transform3D(horiz_z, Vector3(x2, H, 0)))
 	_multi(cage_root, bar, metal, back_t)
-	_multi(cage_root, bar, front_metal, front_t)
-	# рамы
-	var frame := Items3D.mat(Color(0.85, 0.85, 0.83), 0.4, "metal")
-	for y in [0.05, H]:
-		Items3D.box(cage_root, Vector3(HALF_X * 2 + 0.1, 0.1, 0.1), frame, Vector3(0, y, -HALF_Z))
-		Items3D.box(cage_root, Vector3(0.1, 0.1, HALF_Z * 2), frame, Vector3(-HALF_X, y, 0))
-		Items3D.box(cage_root, Vector3(0.1, 0.1, HALF_Z * 2), frame, Vector3(HALF_X, y, 0))
-	Items3D.box(cage_root, Vector3(HALF_X * 2 + 0.1, 0.1, 0.1), Items3D.mat(Color(0.85, 0.85, 0.83, 0.5), 0.4), Vector3(0, H, HALF_Z))
-	# полки (сплошные, с бортиком) и пандусы с поперечными рейками
-	var wood := Items3D.mat(Color(0.82, 0.66, 0.44), 0.7, "wood")
-	_shelf(Vector3(-4.15, 3.6, -0.25), Vector2(3.6, 5.3), wood)
-	_shelf(Vector3(4.15, 6.8, -0.25), Vector2(3.6, 5.3), wood)
-	_ramp(Vector3(3.45, 0, -2.15), Vector3(-2.4, 3.6, -2.15), wood)
-	_ramp(Vector3(-2.4, 3.6, 1.85), Vector3(2.4, 6.8, 1.85), wood)
+
+	# Каркас клетки (4 угловые стойки + верхняя и нижняя рамки)
+	var frame := Items3D.mat(Color(0.32, 0.30, 0.28), 0.38, "metal")
+	for sx in [-HALF_X - 0.04, HALF_X + 0.04]:
+		for sz in [-HALF_Z - 0.04, HALF_Z + 0.04]:
+			Items3D.box(cage_root, Vector3(0.11, H, 0.11), frame, Vector3(sx, H * 0.5, sz))
+	for y in [0.46, H]:
+		Items3D.box(cage_root, Vector3(HALF_X * 2.0 + 0.2, 0.11, 0.11), frame, Vector3(0, y, -HALF_Z - 0.04))
+		Items3D.box(cage_root, Vector3(0.11, 0.11, HALF_Z * 2.0 + 0.1), frame, Vector3(-HALF_X - 0.04, y, 0))
+		Items3D.box(cage_root, Vector3(0.11, 0.11, HALF_Z * 2.0 + 0.1), frame, Vector3(HALF_X + 0.04, y, 0))
+	Items3D.box(cage_root, Vector3(HALF_X * 2.0 + 0.2, 0.11, 0.11), frame, Vector3(0, H, HALF_Z + 0.04))
+	# Небольшие декоративные вертикальные перекладины по бокам передней рамки (широкий открытый проём в центре)
+	for fx in [-HALF_X + 0.55, HALF_X - 0.55]:
+		Items3D.cyl(cage_root, 0.022, 0.022, H - 0.4, metal, Vector3(fx, (H + 0.4) * 0.5, HALF_Z + 0.04), Vector3.ZERO, 6)
+
+	# Полки (сплошные, с бортиком) и пандусы с поперечными рейками
+	var wood := Items3D.mat(Color(0.76, 0.59, 0.39), 0.72, "wood")
+	_shelf(Vector3(-4.1, 3.6, -0.25), Vector2(3.5, 5.2), wood)
+	_shelf(Vector3(4.1, 6.8, -0.25), Vector2(3.5, 5.2), wood)
+	_ramp(Vector3(3.35, 0, -2.05), Vector3(-2.4, 3.6, -2.05), wood)
+	_ramp(Vector3(-2.4, 3.6, 1.75), Vector3(2.4, 6.8, 1.75), wood)
 	if level >= 2:
-		_shelf(Vector3(-4.15, 10.0, -0.25), Vector2(3.6, 5.3), wood)
-		_ramp(Vector3(2.4, 6.8, -2.15), Vector3(-2.4, 10.0, -2.15), wood)
-	# фиксированные предметы
+		_shelf(Vector3(-4.1, 10.0, -0.25), Vector2(3.5, 5.2), wood)
+		_ramp(Vector3(2.4, 6.8, -2.05), Vector3(-2.4, 10.0, -2.05), wood)
+
+	# Фиксированные предметы — строго внутри клетки (поилка снаружи правой стенки, носик внутри!)
 	var b := Items3D.bowl()
-	b.position = Vector3(4.25, 0, 1.85)
+	b.position = Vector3(3.45, 0, 1.35)
 	cage_root.add_child(b)
 	fixed.bowl = b
+
 	var bt := Items3D.bottle()
-	bt.position = Vector3(5.65, 0, 0.6)
+	bt.position = Vector3(HALF_X + 0.40, 0.15, 0.55)
 	cage_root.add_child(bt)
 	fixed.bottle = bt
+
 	var lt := Items3D.litter_tray()
-	lt.position = Vector3(4.85, 0, -1.55)
-	lt.scale = Vector3(0.9, 1, 0.9)
+	lt.position = Vector3(4.55, 0, -1.50)
+	lt.scale = Vector3(0.86, 1.0, 0.86)
 	cage_root.add_child(lt)
 	fixed.litter = lt
+
 	leftovers_root = Node3D.new()
-	leftovers_root.position = Vector3(3.6, 0, 2.3)
+	leftovers_root.position = Vector3(2.25, 0, 1.55)
 	cage_root.add_child(leftovers_root)
-	_build_dedication_plaque()
-
-func plaque_world_pos() -> Vector3:
-	return Vector3(0.0, H * 0.56, -HALF_Z - 0.14)
-
-func _build_dedication_plaque() -> void:
-	# Памятная деревянная табличка «Посвящается : Тимме, Жоржу, Васе, Элвину»
-	# Закреплена на задней стенке клетки в тёплой дубовой рамке — всегда видна и кликабельна!
-	var plaque_root := Node3D.new()
-	plaque_root.position = plaque_world_pos()
-	cage_root.add_child(plaque_root)
-
-	var pw := 3.9
-	var ph := 3.08
-	var wood_frame := Items3D.mat(Color(0.76, 0.58, 0.38), 0.65, "wood")
-	Items3D.box(plaque_root, Vector3(pw + 0.24, ph + 0.24, 0.14), wood_frame, Vector3(0, 0, -0.08))
-
-	var tex := load("res://assets/ui/dedication_plaque.png") as Texture2D
-	if tex:
-		var face := MeshInstance3D.new()
-		var qm := QuadMesh.new()
-		qm.size = Vector2(pw, ph)
-		face.mesh = qm
-		var fm := StandardMaterial3D.new()
-		fm.albedo_texture = tex
-		fm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		fm.roughness = 0.55
-		fm.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-		face.material_override = fm
-		face.position = Vector3(0, 0, 0.01)
-		plaque_root.add_child(face)
-
-	# Маленькое латунное крепление сверху рамки
-	var brass := Items3D.mat(Color(0.84, 0.68, 0.34), 0.35, "metal")
-	Items3D.cyl(plaque_root, 0.08, 0.08, 0.08, brass, Vector3(0, ph * 0.5 + 0.18, -0.05), Vector3(PI / 2.0, 0, 0))
 
 func _multi(parent: Node3D, mesh: Mesh, m: Material, ts: Array) -> void:
 	var mm := MultiMesh.new()
@@ -451,9 +586,16 @@ func _multi(parent: Node3D, mesh: Mesh, m: Material, ts: Array) -> void:
 	parent.add_child(mmi)
 
 func _shelf(center: Vector3, size: Vector2, wood: Material) -> void:
+	var bracket_m := Items3D.mat(Color(0.36, 0.34, 0.32), 0.42, "metal")
 	Items3D.box(cage_root, Vector3(size.x, 0.16, size.y), wood, center - Vector3(0, 0.08, 0))
 	var side := 1.0 if center.x < 0 else -1.0
-	Items3D.box(cage_root, Vector3(0.08, 0.3, size.y), wood, center + Vector3(side * size.x / 2, 0.1, 0))
+	Items3D.box(cage_root, Vector3(0.09, 0.30, size.y), wood, center + Vector3(side * size.x / 2, 0.10, 0))
+	# Опорные кронштейны к боковой стенке клетки (полки крепко держатся, не парят!)
+	var wall_x := -HALF_X if center.x < 0 else HALF_X
+	var br_x := lerpf(wall_x, center.x, 0.45)
+	for bz in [-size.y * 0.34, size.y * 0.34]:
+		Items3D.box(cage_root, Vector3(absf(center.x - wall_x) * 0.9, 0.09, 0.09), bracket_m, Vector3(br_x, center.y - 0.20, center.z + bz))
+		Items3D.box(cage_root, Vector3(0.09, 0.55, 0.09), bracket_m, Vector3(wall_x + side * 0.10, center.y - 0.42, center.z + bz))
 
 func _ramp(a: Vector3, b: Vector3, wood: Material) -> void:
 	var mid := (a + b) / 2.0
@@ -473,7 +615,7 @@ func _ramp(a: Vector3, b: Vector3, wood: Material) -> void:
 # ---------------------- манеж ----------------------
 func _build_pen() -> void:
 	var panel := Items3D.mat(Color(0.56, 0.66, 0.58), 0.6)
-	var mat_floor := Items3D.mat(Color(0.93, 0.89, 0.8), 0.95, "fabric")
+	var mat_floor := Items3D.mat(Color(0.86, 0.81, 0.72), 0.95, "fabric")
 	var mf := Items3D.cyl(pen_root, 5.9, 5.9, 0.06, mat_floor, PEN_C + Vector3(0, -0.02, 0), Vector3.ZERO, 8)
 	mf.rotation.y = PI / 8
 	for i in 8:
@@ -516,12 +658,11 @@ func refresh_state_visuals() -> void:
 	if litter_mat:
 		litter_mat.set_shader_parameter("dirt", clampf(1.0 - float(c.clean.litter) / 100.0, 0.0, 1.0) * 0.8)
 	var fill: MeshInstance3D = fixed.litter.get_node("fill")
-	fill.material_override = Items3D.mat(Color(0.93, 0.9, 0.82).lerp(Color(0.8, 0.76, 0.66), 1.0 - float(c.clean.tray) / 100.0), 0.95)
-	# остатки еды — аккуратные кусочки, без натурализма
+	fill.material_override = Items3D.mat(Color(0.84, 0.79, 0.70).lerp(Color(0.68, 0.62, 0.52), 1.0 - float(c.clean.tray) / 100.0), 0.95)
 	for ch in leftovers_root.get_children():
 		ch.queue_free()
-	for i in int(c.leftovers):
-		Items3D.sph(leftovers_root, Vector3(0.1, 0.06, 0.1), Items3D.mat(Color(0.6, 0.55, 0.3)), Vector3(i * 0.3 - 0.3, 0.06, 0))
+	for i in mini(int(c.leftovers), 5):
+		Items3D.sph(leftovers_root, Vector3(0.09, 0.055, 0.09), Items3D.mat(Color(0.56, 0.48, 0.28)), Vector3(i * 0.26 - 0.52, 0.055, 0))
 
 func spin(slot_id: String, delta: float) -> void:
 	if _spinners.has(slot_id):
@@ -531,46 +672,32 @@ func spin(slot_id: String, delta: float) -> void:
 func _apply_theme() -> void:
 	var id: String = Game.state.theme
 	var th: Dictionary = Data.THEMES.get(id, Data.THEMES.scandi)
-	bg_rect.modulate = th.tint
-	bg_stars.visible = id == "space"
-	bg_rect.visible = id != "space"
 	env.ambient_light_color = th.ambient
+	env.background_color = th.get("wall", Color(0.84, 0.79, 0.71)).darkened(0.08)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 42
 	match id:
 		"forest":
-			for i in 7:
-				var p := Vector3(rng.randf_range(-12, 12), FLOOR_Y, rng.randf_range(-7, -4.5))
-				var h := rng.randf_range(2.0, 4.0)
-				Items3D.cyl(theme_root, 0.0, h * 0.35, h, Items3D.mat(Color(0.35, 0.55, 0.32)), p + Vector3(0, h / 2 + 0.6, 0))
-				Items3D.cyl(theme_root, 0.12, 0.12, 0.6, Items3D.mat(Color(0.45, 0.32, 0.2)), p + Vector3(0, 0.3, 0))
-			for i in 6:
-				var q := Vector3(rng.randf_range(-10, 10), FLOOR_Y, rng.randf_range(4.0, 6.0))
-				Items3D.cyl(theme_root, 0.06, 0.08, 0.3, Items3D.mat(Color(0.95, 0.92, 0.85)), q + Vector3(0, 0.15, 0))
-				Items3D.sph(theme_root, Vector3(0.25, 0.13, 0.25), Items3D.mat(Color(0.85, 0.35, 0.28)), q + Vector3(0, 0.32, 0))
+			for i in 5:
+				var p := Vector3(rng.randf_range(-13, 13), FLOOR_Y, rng.randf_range(-4.5, -2.5))
+				if absf(p.x) < 8.5:
+					continue
+				var h := rng.randf_range(2.2, 4.2)
+				Items3D.cyl(theme_root, 0.0, h * 0.35, h, Items3D.mat(Color(0.32, 0.52, 0.30)), p + Vector3(0, h / 2 + 0.6, 0))
+				Items3D.cyl(theme_root, 0.12, 0.12, 0.6, Items3D.mat(Color(0.42, 0.30, 0.18)), p + Vector3(0, 0.3, 0))
 		"pastel":
-			for i in 8:
-				var p2 := Vector3(rng.randf_range(-12, 12), rng.randf_range(4, 12), rng.randf_range(-8, -5))
-				var col: Color = [Color(1, 0.8, 0.88), Color(0.8, 0.92, 1), Color(0.86, 1, 0.88), Color(1, 0.95, 0.75)][i % 4]
-				Items3D.sph(theme_root, Vector3(0.6, 0.35, 0.3), Items3D.mat(col), p2)
+			for i in 6:
+				var p2 := Vector3(-12.0 + i * 4.8, rng.randf_range(10.5, 13.0), -5.3)
+				var col: Color = [Color(0.95, 0.78, 0.85), Color(0.78, 0.88, 0.96), Color(0.82, 0.94, 0.84), Color(0.96, 0.90, 0.74)][i % 4]
+				Items3D.sph(theme_root, Vector3(0.65, 0.35, 0.3), Items3D.mat(col), p2)
 		"space":
-			Items3D.sph(theme_root, Vector3.ONE * 2.2, Items3D.mat(Color(0.85, 0.6, 0.45)), Vector3(-11, 9, -9))
-			Items3D.torus(theme_root, 2.8, 3.4, Items3D.mat(Color(0.9, 0.82, 0.6)), Vector3(-11, 9, -9), Vector3(0.4, 0, 0.3))
-			Items3D.sph(theme_root, Vector3.ONE * 1.2, Items3D.mat(Color(0.5, 0.7, 0.95)), Vector3(12, 12, -8))
-		"city":
-			for i in 9:
-				var p3 := Vector3(-13 + i * 3.2, FLOOR_Y, rng.randf_range(-8, -6))
-				var hh := rng.randf_range(2, 6)
-				var b := Items3D.box(theme_root, Vector3(2.4, hh, 2.0), Items3D.mat([Color(0.85, 0.8, 0.72), Color(0.72, 0.78, 0.86), Color(0.9, 0.75, 0.7)][i % 3]), p3 + Vector3(0, hh / 2, 0))
-				for k in int(hh / 1.2):
-					Items3D.box(b, Vector3(1.6, 0.4, 0.05), Items3D.mat(Color(1, 0.92, 0.6)), Vector3(0, -hh / 2 + 0.8 + k * 1.2, 1.01))
+			Items3D.sph(theme_root, Vector3.ONE * 1.4, Items3D.mat(Color(0.80, 0.56, 0.42)), Vector3(-9.5, 11.2, -5.0))
+			Items3D.torus(theme_root, 1.8, 2.2, Items3D.mat(Color(0.88, 0.80, 0.58)), Vector3(-9.5, 11.2, -5.0), Vector3(0.4, 0, 0.3))
 		"autumn":
-			for i in 30:
-				var p4 := Vector3(rng.randf_range(-11, 11), FLOOR_Y + 0.05, rng.randf_range(3.6, 7))
-				var lc: Color = [Color(0.9, 0.5, 0.2), Color(0.8, 0.3, 0.15), Color(0.95, 0.75, 0.3)][i % 3]
+			for i in 16:
+				var p4 := Vector3(rng.randf_range(-10, 10), FLOOR_Y + 0.05, rng.randf_range(4.2, 8.2))
+				var lc: Color = [Color(0.86, 0.46, 0.18), Color(0.76, 0.28, 0.14), Color(0.90, 0.70, 0.26)][i % 3]
 				Items3D.box(theme_root, Vector3(0.35, 0.02, 0.22), Items3D.mat(lc), p4, Vector3(0, rng.randf() * 3, 0))
-			for x in [-9.0, 9.5]:
-				Items3D.sph(theme_root, Vector3(0.9, 0.7, 0.9), Items3D.mat(Color(0.92, 0.5, 0.15)), Vector3(x, FLOOR_Y + 0.7, 5))
 
 # ---------------------- маркеры обустройства ----------------------
 func show_markers(on: bool, item_id := "") -> void:
@@ -582,9 +709,9 @@ func show_markers(on: bool, item_id := "") -> void:
 	for sid in slots:
 		var s: Dictionary = slots[sid]
 		var ok := item_id == "" or bool(can_place(item_id, sid).ok)
-		var col := Color(0.4, 0.85, 0.5, 0.45) if ok else Color(0.9, 0.4, 0.35, 0.25)
+		var col := Color(0.35, 0.80, 0.46, 0.52) if ok else Color(0.88, 0.38, 0.32, 0.30)
 		if slot_item(sid) != "":
-			col = Color(0.95, 0.8, 0.3, 0.45) if ok else Color(0.9, 0.4, 0.35, 0.25)
+			col = Color(0.92, 0.76, 0.28, 0.52) if ok else Color(0.88, 0.38, 0.32, 0.30)
 		var m := Items3D.mat(col, 1.0)
 		var p: Vector3 = s.pos + Vector3(0, 0.06, 0)
 		var disc := Items3D.cyl(markers_root, 0.9, 0.9, 0.04, m, p)

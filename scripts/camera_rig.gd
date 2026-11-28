@@ -4,47 +4,50 @@ extends Node3D
 
 var cam: Camera3D
 var yaw := 0.0
-var pitch := 0.28
-var dist := 19.0
-var target := Vector3(0, 3.4, 0)
+var pitch := 0.20
+var dist := 19.5
+var target := Vector3(1.1, 3.6, 0.0)
 var t_yaw := 0.0
-var t_pitch := 0.25
+var t_pitch := 0.20
 var t_dist := 19.5
-var t_target := Vector3(0, 3.4, 0)
+var t_target := Vector3(1.1, 3.6, 0.0)
 var follow: Node3D = null
 var pet_level := false
-var home := Vector3(0, 3.4, 0)
+var home := Vector3(1.1, 3.6, 0.0)
 var home_dist := 19.5
-var smooth := 5.0
+var smooth := 5.5
 var world: World
 
 func _ready() -> void:
 	cam = Camera3D.new()
 	cam.fov = 42.0
-	cam.near = 0.1
-	cam.far = 200.0
+	cam.near = 0.15
+	cam.far = 160.0
 	add_child(cam)
 	cam.current = true
 	_apply()
 
 func orbit(dx: float, dy: float) -> void:
-	t_yaw = clampf(t_yaw - dx * 0.006, -1.15, 1.15)
-	t_pitch = clampf(t_pitch + dy * 0.004, 0.02, 1.15)
+	# Вращаем камеру плавно внутри настоящей 3D-комнаты (не заходя за заднюю стену!)
+	t_yaw = clampf(t_yaw - dx * 0.0055, -0.78, 0.78)
+	t_pitch = clampf(t_pitch + dy * 0.004, 0.04, 0.72)
 
 func zoom(f: float) -> void:
-	t_dist = clampf(t_dist * f, 3.5, 32.0)
+	t_dist = clampf(t_dist * f, 4.4, 24.5)
 
 func pan(dx: float, dy: float) -> void:
 	follow = null
 	var right := cam.global_basis.x
 	var up := Vector3.UP
 	t_target += (-right * dx + up * dy) * t_dist * 0.0012
-	t_target.y = clampf(t_target.y, -0.5, 13.0)
+	t_target.x = clampf(t_target.x, -8.0, 22.0)
+	t_target.y = clampf(t_target.y, -2.0, 11.5)
+	t_target.z = clampf(t_target.z, -2.0, 4.0)
 
 func focus_area(area: String) -> void:
 	follow = null
 	pet_level = false
-	home = Vector3(0, 3.4 if (world == null or world.level == 1) else 4.9, 0) if area == "cage" else World.PEN_C + Vector3(0, 1.0, 0)
+	home = Vector3(1.1, 3.6 if (world == null or world.level == 1) else 5.0, 0.0) if area == "cage" else World.PEN_C + Vector3(0, 1.4, 0)
 	home_dist = 19.5 if area == "cage" else 15.0
 	if world and world.level >= 2 and area == "cage":
 		home_dist = 22.5
@@ -56,15 +59,16 @@ func reset_view() -> void:
 	pet_level = false
 	t_target = home
 	t_dist = home_dist
-	t_pitch = 0.28
+	t_pitch = 0.20
 	t_yaw = 0.0
 
 func follow_node(n: Node3D, level := false) -> void:
 	follow = n
 	pet_level = level
-	t_dist = 5.5 if level else 9.0
+	t_dist = 5.4 if level else 8.8
 	if level:
-		t_pitch = 0.06
+		t_pitch = 0.12
+		t_yaw = clampf(t_yaw, -0.45, 0.45)
 
 func _process(delta: float) -> void:
 	if follow and is_instance_valid(follow):

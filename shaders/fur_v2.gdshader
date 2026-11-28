@@ -1,19 +1,20 @@
 shader_type spatial;
+render_mode depth_draw_opaque, cull_back;
 // UV-привязанный шейдер шерсти для RatBody (rat_rigged.glb) в стиле мягкого бархата.
 // u = 0.5 — линия хребта; u = 0 / 1 — животик; v = 0 — круп; v = 1 — кончик носа.
 
 uniform int pattern = 2;
-uniform vec3 base_col : source_color = vec3(0.96, 0.95, 0.92);
-uniform vec3 mark_col : source_color = vec3(0.44, 0.45, 0.47);
-uniform vec3 white_col : source_color = vec3(0.96, 0.95, 0.92);
+uniform vec3 base_col : source_color = vec3(0.90, 0.88, 0.85);
+uniform vec3 mark_col : source_color = vec3(0.40, 0.41, 0.44);
+uniform vec3 white_col : source_color = vec3(0.90, 0.88, 0.85);
 uniform float rex = 0.0;
 uniform float ticking = 0.0;
 uniform float silver = 0.0;
 uniform float seed = 0.3;
 uniform float dirt = 0.0;
 uniform float highlight = 0.0;
-uniform sampler2D fur_bump_tex : filter_linear_mipmap, repeat_enable;
-uniform sampler2D fur_rough_tex : filter_linear_mipmap, repeat_enable;
+uniform sampler2D fur_bump_tex : hint_default_white, filter_linear_mipmap, repeat_enable;
+uniform sampler2D fur_rough_tex : hint_default_white, filter_linear_mipmap, repeat_enable;
 
 float hash2(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -107,15 +108,19 @@ void fragment() {
 	vec3 col = coat_color(UV);
 	// Мягкий направленный ворс + лёгкие завитки рекса
 	float wave = rex * (0.5 + 0.5 * sin(UV.y * 55.0 + 4.5 * vnoise2(UV * 12.0)));
-	col *= mix(0.92, 1.04, fur_b) * (1.0 - 0.09 * wave);
+	col *= mix(0.88, 1.03, fur_b) * (1.0 - 0.09 * wave);
 
-	// Нежный бархатистый ореол по силуэту (sheen)
-	float fres = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.3);
-	col = mix(col, min(vec3(1.0), col * 1.24 + vec3(0.06)), fres * 0.42);
+	// Мягкий объём сверху-вниз, чтобы даже белая шерсть всегда читалась рельефно
+	vec3 wn = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	col *= mix(0.82, 1.0, clamp(wn.y * 0.5 + 0.55, 0.0, 1.0));
+
+	// Деликатный бархатистый ореол по силуэту без пересвета
+	float fres = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.5);
+	col = mix(col, min(vec3(0.95), col * 1.08 + vec3(0.02)), fres * 0.24);
 	col = mix(col, col * vec3(0.86, 0.82, 0.76), dirt);
-	col += highlight * vec3(0.11, 0.09, 0.03) * (0.45 + fres);
+	col += highlight * vec3(0.09, 0.07, 0.02) * (0.45 + fres);
 
-	ALBEDO = col;
-	ROUGHNESS = clamp(mix(0.78, 0.96, fur_r) - 0.10 * rex, 0.45, 0.98);
-	SPECULAR = 0.22;
+	ALBEDO = clamp(col, vec3(0.0), vec3(0.93));
+	ROUGHNESS = clamp(mix(0.82, 0.96, fur_r) - 0.10 * rex, 0.50, 0.98);
+	SPECULAR = 0.16;
 }

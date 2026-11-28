@@ -5,7 +5,7 @@ config_version=5
 
 config/name="RAT HOME v2"
 config/description="Уютный 3D-симулятор декоративных домашних крыс (версия v2 с новым скульптурным ригом)"
-config/version="2.0.0"
+config/version="2.1.0"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 config/icon="res://icon.png"
@@ -29,7 +29,7 @@ window/handheld/orientation=4
 
 [gui]
 
-theme/custom_font="res://assets/fonts/Montserrat.ttf"
+theme/custom_font="res://assets/fonts/Montserrat-Medium.ttf"
 
 [input_devices]
 
@@ -40,5 +40,6 @@ pointing/emulate_touch_from_mouse=true
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/vram_compression/import_etc2_astc=true
-anti_aliasing/quality/msaa_3d=1
-environment/defaults/default_clear_color=Color(0.96, 0.89, 0.78, 1)
+anti_aliasing/quality/msaa_3d=0
+anti_aliasing/quality/screen_space_aa=1
+environment/defaults/default_clear_color=Color(0.86, 0.78, 0.67, 1)

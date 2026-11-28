@@ -65,7 +65,10 @@ func setup(d: Dictionary, w: World) -> void:
 	label.position = Vector3(0, 1.8, 0)
 	label.no_depth_test = true
 	label.visible = false
-	label.font = load("res://assets/fonts/Montserrat.ttf")
+	var lbl_font: Font = load("res://assets/fonts/Montserrat-Bold.ttf")
+	if lbl_font == null:
+		lbl_font = load("res://assets/fonts/Montserrat.ttf")
+	label.font = lbl_font
 	add_child(label)
 
 	zzz = Label3D.new()
@@ -75,21 +78,27 @@ func setup(d: Dictionary, w: World) -> void:
 	zzz.modulate = Color(0.58, 0.66, 0.88, 0.85)
 	zzz.position = Vector3(0.32, 1.32, 0)
 	zzz.visible = false
-	zzz.font = label.font
+	zzz.font = lbl_font
 	add_child(zzz)
 
-	offset = Vector3(Game.rng.randf_range(-0.32, 0.32), 0.0, Game.rng.randf_range(-0.28, 0.28))
+	offset = Vector3(Game.rng.randf_range(-0.22, 0.22), 0.0, Game.rng.randf_range(-0.20, 0.20))
 	var ar: String = d.get("loc", "cage")
 	if ar == "pen" and not bool(Game.state.playpen):
 		d.loc = "cage"
 		ar = "cage"
 	cur_node = world.random_node(ar)
 	if cur_node != "" and world.nodes.has(cur_node):
-		position = world.nodes[cur_node] + offset
+		position = _clamp_cage_pos(world.nodes[cur_node] + offset)
 	yaw = Game.rng.randf() * TAU
 	_prev_yaw = yaw
 	_sleep_wave = Game.rng.randf() * TAU
 	think_cd = Game.rng.randf_range(0.4, 1.8)
+
+func _clamp_cage_pos(p: Vector3) -> Vector3:
+	if area() == "cage":
+		p.x = clampf(p.x, -World.HALF_X + 0.72, World.HALF_X - 0.72)
+		p.z = clampf(p.z, -World.HALF_Z + 0.72, World.HALF_Z - 0.72)
+	return p
 
 func rebuild_model() -> void:
 	var app: Dictionary = data.app.duplicate()
@@ -213,8 +222,8 @@ func go_to(node_id: String, g: Dictionary = {}) -> bool:
 func _node_pos(id: String) -> Vector3:
 	var p: Vector3 = world.nodes[id]
 	if id.begins_with("s_") or id in ["bowl", "drink", "door", "litter"] or id.ends_with("e"):
-		return p
-	return p + offset
+		return _clamp_cage_pos(p)
+	return _clamp_cage_pos(p + offset)
 
 func _next_segment() -> void:
 	var nxt: String = path.pop_front()
